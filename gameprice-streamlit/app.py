@@ -1,12 +1,33 @@
-"""GamePrice Brasil - comparador de precos de jogos (Streamlit + Supabase)."""
+"""GamePrice Brasil - comparador de preços de jogos (Streamlit + Supabase)."""
 import pandas as pd
 import streamlit as st
 from supabase import Client, create_client
 
-st.set_page_config(page_title="GamePrice Brasil", page_icon="🎮", layout="wide")
+st.set_page_config(
+    page_title="GamePrice Brasil 🎮",
+    page_icon="🎮",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
 
 PLATAFORMAS = ["Todas", "PC", "PS4", "PS5", "XBOX", "SWITCH"]
 MEDALHAS = {0: "🥇", 1: "🥈", 2: "🥉"}
+
+# CSS mínimo para melhorar a aparência
+st.markdown("""
+<style>
+.price-badge {
+    background: #1a1a2e; color: #e94560;
+    padding: 4px 12px; border-radius: 20px;
+    font-size: 1.4rem; font-weight: bold;
+}
+.store-card {
+    background: #16213e; padding: 12px;
+    border-radius: 10px; margin: 4px 0;
+    border-left: 4px solid #e94560;
+}
+</style>
+""", unsafe_allow_html=True)
 
 
 @st.cache_resource
@@ -14,18 +35,31 @@ def get_client() -> Client:
     cfg = st.secrets["supabase"]
     return create_client(cfg["url"], cfg["anon_key"])
 
-
 sb = get_client()
 
 
 @st.cache_data(ttl=300)
 def buscar_jogos(termo: str, plataforma: str) -> list[dict]:
-    q = sb.table("games").select("*")
+    q = sb.table("games").select("id, title, slug, platform, cover_url")
     if termo:
         q = q.ilike("title", f"%{termo}%")
     if plataforma != "Todas":
         q = q.eq("platform", plataforma)
-    return q.order("title").limit(50).execute().data
+    return q.order("title").limit(100).execute().data
+
+
+@st.cache_data(ttl=300)
+def jogos_mais_baratos() -> list[dict]:
+    """Jogos com maior desconto atual via view v_game_offers."""
+    return (
+        sb.table("v_game_offers")
+        .select("game_id, title, slug, platform, cover_url, store, price, discount_percent")
+        .gt("discount_percent", 0)
+        .order("discount_percent", desc=True)
+        .limit(12)
+        .execute()
+        .data
+    )
 
 
 @st.cache_data(ttl=300)
@@ -66,32 +100,72 @@ def registrar_alerta(email: str, game_id: str, alvo: float) -> None:
     ).execute()
 
 
-# ------------------------------------------------------------------
+# ── HEADER ──────────────────────────────────────────────────────────────────
 st.title("🎮 GamePrice Brasil")
-st.caption("Compare precos de jogos em varias lojas e acompanhe o historico.")
+st.caption("Compare preços de jogos em várias lojas e acompanhe o histórico.")
 
-col_busca, col_plat = st.columns([3, 1])
-termo = col_busca.text_input("Buscar jogo", placeholder="ex.: Elden Ring")
+# ── BUSCA ───────────────────────────────────────────────────────────────────
+col_busca, col_plat, col_btn = st.columns([3, 1, 0.7])
+termo = col_busca.text_input("🔍 Buscar jogo", placeholder="ex.: Elden Ring, Hades...")
 plataforma = col_plat.selectbox("Plataforma", PLATAFORMAS)
+buscar = col_btn.button("Buscar", use_container_width=True, type="primary")
 
-jogos = buscar_jogos(termo, plataforma)
+# ── PÁGINA INICIAL: jogos com desconto ──────────────────────────────────────
+if not termo:
+    st.divider()
+    st.subheader("🔥 Maiores descontos agora")
+    baratos = jogos_mais_baratos()
 
-if not jogos:
-    st.info("Nenhum jogo encontrado. Tente outro termo ou rode o seed.sql no Supabase.")
+    if baratos:
+        cols = st.columns(4)
+        for i, jogo in enumerate(baratos[:8]):
+            with cols[i % 4]:
+                if jogo.get("cover_url"):
+                    st.image(jogo["cover_url"], use_container_width=True)
+                pct = jogo.get("discount_percent", 0)
+                preco = float(jogo.get("price") or 0)
+                st.markdown(f"**{jogo['title']}**")
+                st.markdown(
+                    f"<span style='color:#e94560;font-weight:bold'>-{pct}%</span> "
+                    f"R$ {preco:.2f}",
+                    unsafe_allow_html=True,
+                )
+                if st.button("Ver detalhes", key=f"btn_{jogo['game_id']}"):
+                    st.session_state["jogo_selecionado"] = jogo["game_id"]
+                    st.rerun()
+    else:
+        st.info("Execute o worker uma vez para carregar os preços reais da Steam.")
+
+    st.divider()
+    st.subheader(f"📚 Catálogo completo ({len(buscar_jogos('', 'Todas'))} jogos)")
+    st.caption("Use a busca acima para encontrar um jogo específico.")
     st.stop()
 
-titulos = {f"{j['title']}  ({j['platform']})": j for j in jogos}
-escolha = st.selectbox("Resultados", list(titulos.keys()))
-jogo = titulos[escolha]
+# ── RESULTADOS DA BUSCA ─────────────────────────────────────────────────────
+jogos = buscar_jogos(termo, plataforma)
+if not jogos:
+    st.warning("Nenhum jogo encontrado. Tente outro termo.")
+    st.stop()
 
 st.divider()
+titulos = {f"{j['title']}  ({j['platform']})": j for j in jogos}
+
+# Se só um resultado, vai direto; senão mostra selectbox
+if len(jogos) == 1:
+    jogo = jogos[0]
+else:
+    st.caption(f"{len(jogos)} resultado(s) encontrado(s)")
+    escolha = st.selectbox("Selecione o jogo", list(titulos.keys()))
+    jogo = titulos[escolha]
+
+# ── DETALHE DO JOGO ─────────────────────────────────────────────────────────
 esq, dir_ = st.columns([1, 2])
 
 with esq:
     if jogo.get("cover_url"):
         st.image(jogo["cover_url"], use_container_width=True)
     st.subheader(jogo["title"])
-    st.write(f"Plataforma: **{jogo['platform']}**")
+    st.write(f"**Plataforma:** {jogo['platform']}")
     st.caption(f"slug: {jogo['slug']}")
 
 with dir_:
@@ -99,34 +173,46 @@ with dir_:
     ofertas.sort(key=lambda o: float(o["price"]))
 
     if not ofertas:
-        st.warning("Ainda nao ha precos para este jogo. Rode o worker para coletar.")
+        st.warning("Ainda não há preços para este jogo. Aguarde o próximo ciclo do worker (6h).")
     else:
         menor = float(ofertas[0]["price"])
-        st.metric("Menor preco", f"R$ {menor:.2f}")
 
-        st.markdown("### Ranking de precos")
+        # Métricas principais
+        m1, m2, m3 = st.columns(3)
+        m1.metric("💰 Menor preço", f"R$ {menor:.2f}")
+        if ofertas[0].get("old_price"):
+            economia = float(ofertas[0]["old_price"]) - menor
+            m2.metric("💸 Economia", f"R$ {economia:.2f}")
+        if ofertas[0].get("discount_percent"):
+            m3.metric("🏷️ Desconto", f"{ofertas[0]['discount_percent']}%")
+
+        # Ranking
+        st.markdown("### 🏆 Ranking de preços")
         linhas = []
         for i, o in enumerate(ofertas):
             preco = float(o["price"])
             diff = preco - menor
             diff_pct = (diff / menor * 100) if menor else 0
-            linhas.append(
-                {
-                    "": MEDALHAS.get(i, f"{i + 1}º"),
-                    "Loja": o["store"],
-                    "Preco": f"R$ {preco:.2f}",
-                    "Desconto": f"{o['discount_percent']}%" if o.get("discount_percent") else "-",
-                    "vs. menor": "menor preco" if diff == 0 else f"+R$ {diff:.2f} ({diff_pct:.0f}%)",
-                }
-            )
+            linhas.append({
+                "": MEDALHAS.get(i, f"{i+1}º"),
+                "Loja": o["store"],
+                "Preço": f"R$ {preco:.2f}",
+                "Desconto": f"{o['discount_percent']}%" if o.get("discount_percent") else "-",
+                "vs. menor": "✅ menor preço" if diff == 0 else f"+R$ {diff:.2f} ({diff_pct:.0f}%)",
+            })
         st.dataframe(pd.DataFrame(linhas), hide_index=True, use_container_width=True)
 
         for o in ofertas:
             url = link_afiliado(o["product_url"], o.get("affiliate_code"))
-            st.link_button(f"Ver na {o['store']} - R$ {float(o['price']):.2f}", url)
+            preco = float(o["price"])
+            st.link_button(
+                f"🛒 Comprar na {o['store']} — R$ {preco:.2f}",
+                url,
+                use_container_width=True,
+            )
 
-        # ----- Historico -----
-        st.markdown("### Historico de precos")
+        # Histórico
+        st.markdown("### 📈 Histórico de preços")
         mapa_loja = {o["offer_id"]: o["store"] for o in ofertas}
         hist = historico_do_jogo(list(mapa_loja.keys()))
         if hist:
@@ -139,18 +225,20 @@ with dir_:
             )
             st.line_chart(pivot)
         else:
-            st.caption("Sem historico ainda - os pontos aparecem conforme o worker roda.")
+            st.caption("Histórico disponível após a primeira coleta do worker.")
 
-# ------------------------------------------------------------------
+# ── ALERTA ──────────────────────────────────────────────────────────────────
 st.divider()
-with st.expander("🔔 Criar alerta de preco"):
-    st.write(f"Avise quando **{jogo['title']}** ficar abaixo de um valor.")
+with st.expander("🔔 Criar alerta de preço"):
+    st.write(f"Avise quando **{jogo['title']}** cair abaixo de um valor.")
     c1, c2 = st.columns(2)
     email = c1.text_input("Seu e-mail", key="alert_email")
-    alvo = c2.number_input("Preco alvo (R$)", min_value=1.0, value=150.0, step=10.0)
-    if st.button("Criar alerta"):
+    sugestao = round(menor * 0.8, 2) if ofertas else 150.0
+    alvo = c2.number_input("Preço alvo (R$)", min_value=1.0, value=sugestao, step=10.0)
+    if st.button("🔔 Criar alerta", type="primary"):
         if email and "@" in email:
             registrar_alerta(email, jogo["id"], float(alvo))
-            st.success("Alerta criado! Voce sera avisado quando o preco cair.")
+            st.success(f"✅ Alerta criado! Você será avisado quando {jogo['title']} "
+                      f"ficar abaixo de R$ {alvo:.2f}.")
         else:
-            st.error("Informe um e-mail valido.")
+            st.error("Informe um e-mail válido.")

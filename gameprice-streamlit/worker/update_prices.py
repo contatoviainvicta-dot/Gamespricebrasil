@@ -13,15 +13,16 @@ URL = os.environ["SUPABASE_URL"]
 KEY = os.environ["SUPABASE_SERVICE_KEY"]
 
 FETCHERS = {
-    "steam":         fetch_steam,
-    "mercadolivre":  fetch_mercadolivre,
-    "amazon":        fetch_amazon,
+    "steam":        fetch_steam,
+    "mercadolivre": fetch_mercadolivre,
+    "amazon":       fetch_amazon,
 }
 
-# Rate limits por loja (segundos entre requisicoes)
+# Delay entre requisicoes por loja (segundos)
+# Steam: 429 apareceu apos ~200 req com 1.2s — aumentando para 2s
 RATE_LIMITS = {
-    "steam":        1.2,
-    "mercadolivre": 0.5,
+    "steam":        2.0,
+    "mercadolivre": 0.8,
     "amazon":       1.0,
 }
 
@@ -48,25 +49,25 @@ def run() -> None:
         result = fetcher(o["external_id"])
         if result:
             rows.append({"offer_id": o["id"], **result})
-            print(f"  [{i}/{len(offers)}] OK  {store_slug} "
-                  f"ext={o['external_id'][:30]} "
+            print(f"  [{i}/{len(offers)}] OK  {store_slug:<15} "
+                  f"{o['external_id'][:35]:<35} "
                   f"R${result['price']:.2f} "
                   f"({result.get('discount_percent',0)}% off)")
         else:
-            erros.append(f"{store_slug}:{o['external_id'][:20]}")
-            print(f"  [{i}/{len(offers)}] --- {store_slug} "
-                  f"ext={o['external_id'][:30]} sem preco")
+            erros.append(f"{store_slug}:{o['external_id'][:25]}")
+            print(f"  [{i}/{len(offers)}] --- {store_slug:<15} "
+                  f"{o['external_id'][:35]} sem preco")
 
-        sleep = RATE_LIMITS.get(store_slug, 1.0)
-        time.sleep(sleep)
+        time.sleep(RATE_LIMITS.get(store_slug, 1.0))
 
+    # Gravar em lotes de 20
     if rows:
         for start in range(0, len(rows), 20):
             sb.table("prices").insert(rows[start:start+20]).execute()
 
     print(f"\nResumo: {len(rows)} precos gravados | {len(erros)} sem resposta")
     if erros:
-        print(f"Sem preco: {erros[:10]}")
+        print(f"Sem preco (primeiros 10): {erros[:10]}")
 
 
 if __name__ == "__main__":

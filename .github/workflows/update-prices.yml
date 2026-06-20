@@ -2,13 +2,16 @@ name: update-prices
 
 on:
   schedule:
-    - cron: "0 */6 * * *"   # a cada 6 horas (UTC)
-  workflow_dispatch:         # botão manual no GitHub
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
 
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 10      # 50 jogos × 1.2s ≈ 1min; 10min é folgado
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: gameprice-streamlit   # ← pasta correta
     steps:
       - uses: actions/checkout@v4
 

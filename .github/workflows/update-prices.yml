@@ -8,10 +8,10 @@ on:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     defaults:
       run:
-        working-directory: gameprice-streamlit   # ← pasta correta
+        working-directory: gameprice-streamlit
     steps:
       - uses: actions/checkout@v4
 
@@ -26,4 +26,6 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ML_CLIENT_ID: ${{ secrets.ML_CLIENT_ID }}
+          ML_CLIENT_SECRET: ${{ secrets.ML_CLIENT_SECRET }}
         run: python worker/update_prices.py

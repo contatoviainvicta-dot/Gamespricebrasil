@@ -1,26 +1,26 @@
 name: update-prices
 
-'on':
-  workflow_dispatch:
+on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: "0 */6 * * *"   # a cada 6 horas (UTC)
+  workflow_dispatch:         # botão manual no GitHub
 
 jobs:
   update:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 10      # 50 jogos × 1.2s ≈ 1min; 10min é folgado
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Instalar dependencias
-        run: pip install -r gameprice-streamlit/requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Atualizar precos
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: python gameprice-streamlit/worker/update_prices.py
+        run: python worker/update_prices.py

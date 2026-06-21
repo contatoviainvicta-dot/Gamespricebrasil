@@ -37,6 +37,99 @@ def fetch_steam(appid: str, cc: str = "br", lang: str = "portuguese") -> dict | 
     }
 
 
+# ── GOG ───────────────────────────────────────────────────────────────────────
+
+def fetch_gog(external_id: str) -> dict | None:
+    """Busca preço na GOG pelo ID do produto.
+
+    external_id = ID numérico do produto na GOG (ex: 1895136452)
+    Obtido via catalog.gog.com/v1/catalog na primeira indexação.
+    """
+    try:
+        r = httpx.get(
+            f"https://api.gog.com/products/{external_id}",
+            params={"expand": "prices", "countryCode": "BR"},
+            timeout=15,
+            headers={
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+                "Accept":     "application/json",
+            },
+        )
+        r.raise_for_status()
+        data = r.json()
+    except Exception as exc:
+        print(f"  [gog] erro no id {external_id}: {exc}")
+        return None
+
+    prices = data.get("_embedded", {}).get("prices", [])
+    if not prices:
+        return None
+
+    p = prices[0]
+    final = p.get("finalPrice", "0 BRL").split(" ")[0]
+    base  = p.get("basePrice",  "0 BRL").split(" ")[0]
+
+    try:
+        final_val = round(float(final) / 100, 2)
+        base_val  = round(float(base)  / 100, 2)
+    except (ValueError, TypeError):
+        return None
+
+    if final_val <= 0 and base_val <= 0:
+        return None
+
+    disc = int(((base_val - final_val) / base_val) * 100) if base_val > 0 else 0
+
+    return {
+        "price":            final_val,
+        "old_price":        base_val if base_val != final_val else None,
+        "discount_percent": disc,
+        "available":        True,
+    }
+
+
+def search_gog(title: str) -> dict | None:
+    """Busca um jogo no catálogo da GOG por título.
+    Retorna o ID do produto e informações básicas.
+    Usado pelo discover_games.py para indexar jogos da GOG.
+    """
+    try:
+        r = httpx.get(
+            "https://catalog.gog.com/v1/catalog",
+            params={
+                "limit":        5,
+                "locale":       "pt-BR",
+                "countryCode":  "BR",
+                "currencyCode": "BRL",
+                "productType":  "in:game",
+                "query":        f"contains:{title}",
+                "order":        "desc:score",
+            },
+            timeout=15,
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Accept":     "application/json",
+            },
+        )
+        r.raise_for_status()
+        products = r.json().get("products", [])
+    except Exception as exc:
+        print(f"  [gog_search] erro para '{title}': {exc}")
+        return None
+
+    if not products:
+        return None
+
+    p = products[0]
+    return {
+        "id":    p.get("id", ""),
+        "title": p.get("title", ""),
+        "slug":  p.get("storeLink", "").replace("/game/", "").strip("/"),
+        "cover": p.get("coverHorizontal", ""),
+        "price": p.get("price", {}),
+    }
+
+
 # ── Epic Games — Free Games (operante) ───────────────────────────────────────
 
 EPIC_FREE_URL = (
@@ -46,31 +139,20 @@ EPIC_FREE_URL = (
 
 
 def _epic_store_url(el: dict) -> str:
-    """Monta a URL correta da Epic a partir do elemento da API."""
-    # 1. catalogNs.mappings → mais confiável
     for m in (el.get("catalogNs") or {}).get("mappings") or []:
         if m.get("pageType") == "productHome" and m.get("pageSlug"):
             return f"https://store.epicgames.com/pt-BR/p/{m['pageSlug']}"
-
-    # 2. productSlug
     slug = (el.get("productSlug") or "").replace("/home", "").strip("/")
     if slug and slug != "[]":
         return f"https://store.epicgames.com/pt-BR/p/{slug}"
-
-    # 3. urlSlug
     slug = el.get("urlSlug") or ""
     if slug:
         return f"https://store.epicgames.com/pt-BR/p/{slug}"
-
-    # 4. Fallback
     return "https://store.epicgames.com/pt-BR/free-games"
 
 
 def fetch_epic_free_games() -> dict:
-    """Retorna jogos gratuitos AGORA e PRÓXIMA SEMANA na Epic.
-    
-    Este endpoint é estável e funciona sem autenticação.
-    """
+    """Retorna jogos gratuitos AGORA e PRÓXIMA SEMANA na Epic."""
     result = {"current": [], "next": []}
     try:
         r = httpx.get(
@@ -100,9 +182,8 @@ def fetch_epic_free_games() -> dict:
                 image_url = img
                 break
 
-        store_url = _epic_store_url(el)
+        store_url = "https://store.epicgames.com/pt-BR/free-games"
 
-        # Gratuito AGORA
         for grp in promos.get("promotionalOffers", []):
             for offer in grp.get("promotionalOffers", []):
                 if offer.get("discountSetting", {}).get("discountPercentage", -1) == 0:
@@ -113,7 +194,6 @@ def fetch_epic_free_games() -> dict:
                         "store_url": store_url,
                     })
 
-        # Gratuito PRÓXIMA SEMANA
         for grp in promos.get("upcomingPromotionalOffers", []):
             for offer in grp.get("promotionalOffers", []):
                 if offer.get("discountSetting", {}).get("discountPercentage", -1) == 0:
@@ -127,29 +207,18 @@ def fetch_epic_free_games() -> dict:
     return result
 
 
-# ── Epic Games — Preços (endpoint GraphQL mudou — desativado temporariamente) ─
-
 def fetch_epic(external_id: str) -> dict | None:
-    """Preços da Epic via GraphQL.
-    
-    O endpoint graphql.epicgames.com foi descontinuado (retorna 404).
-    O novo endpoint store.epicgames.com/graphql ainda está sendo validado.
-    Desativado temporariamente — jogos gratuitos semanais continuam funcionando.
-    """
+    """Preços da Epic — desativado (endpoint GraphQL mudou)."""
     return None
 
 
-# ── Mercado Livre (bloqueado por política — aguardando afiliados) ─────────────
+# ── Mercado Livre (bloqueado por política) ────────────────────────────────────
 
 def fetch_mercadolivre(external_id: str) -> dict | None:
-    """Bloqueado por política da API (403 de IPs de datacenter).
-    Aguardando aprovação no programa de afiliados.
-    """
     return None
 
 
 # ── Amazon (scaffold) ─────────────────────────────────────────────────────────
 
 def fetch_amazon(external_id: str) -> dict | None:
-    """Scaffold: precisa de conta Amazon Associates + PA-API 5.0."""
     return None

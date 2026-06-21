@@ -1,10 +1,11 @@
-"""Worker de atualização de preços + Epic free games + GOG."""
+"""Worker de atualização de preços."""
 import os, sys, time
 from supabase import create_client
 
 sys.path.insert(0, os.path.dirname(__file__))
 from connectors import (
-    fetch_steam, fetch_gog, fetch_epic, fetch_mercadolivre, fetch_amazon,
+    fetch_steam, fetch_gog, fetch_humblestore,
+    fetch_epic, fetch_mercadolivre, fetch_amazon,
     fetch_epic_free_games,
 )
 
@@ -14,30 +15,30 @@ KEY = os.environ["SUPABASE_SERVICE_KEY"]
 FETCHERS = {
     "steam":        fetch_steam,
     "gog":          fetch_gog,
+    "humblestore":  fetch_humblestore,
     "epic":         fetch_epic,
     "mercadolivre": fetch_mercadolivre,
     "amazon":       fetch_amazon,
 }
 
 RATE_LIMITS = {
-    "steam": 2.0,
-    "gog":   0.3,   # 4 req/s permitido
-    "epic":  1.0,
-    "mercadolivre": 0.8,
-    "amazon": 1.0,
+    "steam":       2.0,
+    "gog":         0.5,
+    "humblestore": 0.5,
+    "epic":        0.5,
+    "mercadolivre":0.8,
+    "amazon":      1.0,
 }
 
 
 def sync_epic_free_games(sb) -> None:
     print("\n=== Epic: jogos gratuitos da semana ===")
-    data = fetch_epic_free_games()
+    data    = fetch_epic_free_games()
     current = data.get("current", [])
     nexts   = data.get("next", [])
     print(f"Grátis agora: {len(current)} | Próxima semana: {len(nexts)}")
-    for g in current:
-        print(f"  🎁 {g['title']}")
-    for g in nexts:
-        print(f"  🔜 {g['title']}")
+    for g in current: print(f"  🎁 {g['title']}")
+    for g in nexts:   print(f"  🔜 {g['title']}")
     try:
         sb.table("epic_free_games").upsert(
             {"id": 1, "current": current, "next": nexts},
@@ -45,20 +46,18 @@ def sync_epic_free_games(sb) -> None:
         ).execute()
         print("Epic free games salvo ✓")
     except Exception as e:
-        print(f"Erro ao salvar epic free games: {e}")
+        print(f"Erro: {e}")
 
 
 def run() -> None:
     sb = create_client(URL, KEY)
-
     sync_epic_free_games(sb)
 
     offers = (
         sb.table("game_store_offers")
         .select("id, external_id, stores(slug)")
         .eq("active", True)
-        .execute()
-        .data
+        .execute().data
     )
     print(f"\n=== Preços: {len(offers)} ofertas ===")
 
@@ -72,13 +71,13 @@ def run() -> None:
         result = fetcher(o["external_id"])
         if result:
             rows.append({"offer_id": o["id"], **result})
-            print(f"  [{i}/{len(offers)}] OK  {store_slug:<8} "
-                  f"{str(o['external_id'])[:30]:<30} "
+            print(f"  [{i}/{len(offers)}] OK  {store_slug:<12} "
+                  f"{str(o['external_id'])[:35]:<35} "
                   f"R${result['price']:.2f} ({result.get('discount_percent',0)}% off)")
         else:
             erros.append(f"{store_slug}:{str(o['external_id'])[:20]}")
-            print(f"  [{i}/{len(offers)}] --- {store_slug:<8} "
-                  f"{str(o['external_id'])[:30]} sem preço")
+            print(f"  [{i}/{len(offers)}] --- {store_slug:<12} "
+                  f"{str(o['external_id'])[:35]} sem preço")
 
         time.sleep(RATE_LIMITS.get(store_slug, 1.0))
 

@@ -2,20 +2,35 @@ name: update-prices
 
 on:
   schedule:
-    - cron: "0 */6 * * *"   # a cada 6 horas (UTC)
-  workflow_dispatch:         # permite rodar manualmente pelo botao do GitHub
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
 
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: gameprice-streamlit
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.txt
-      - name: Atualizar precos
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Descobrir jogos novos (SteamSpy)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python worker/discover_games.py
+
+      - name: Atualizar precos (Steam + ITAD)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ITAD_API_KEY: ${{ secrets.ITAD_API_KEY }}
         run: python worker/update_prices.py

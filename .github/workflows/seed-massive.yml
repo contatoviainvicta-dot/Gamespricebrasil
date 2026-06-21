@@ -1,0 +1,32 @@
+name: seed-massive
+
+on:
+  workflow_dispatch:
+    inputs:
+      pages:
+        description: "Páginas do SteamSpy (1 página = 1000 jogos)"
+        required: false
+        default: "5"
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: gameprice-streamlit
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Seed massivo (top 5000 jogos Steam via SteamSpy)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python worker/seed_massive.py

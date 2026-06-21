@@ -202,6 +202,38 @@ with st.sidebar:
     st.caption(f"📊 {n_jogos()} jogos · Steam · GOG · Humble")
 
 # ── COMPONENTES ───────────────────────────────────────────────────────────────
+@st.cache_data(ttl=3600)
+def get_steam_description(game_id: str) -> dict:
+    """Busca descrição do jogo na Steam via appid salvo no banco."""
+    import httpx
+    try:
+        # Busca o appid da oferta Steam
+        offer = SB.table("game_store_offers").select("external_id")                  .eq("game_id", game_id)                  .eq("store_id", SB.table("stores").select("id").eq("slug","steam").execute().data[0]["id"])                  .execute().data
+        if not offer:
+            return {}
+        appid = offer[0]["external_id"]
+        r = httpx.get(
+            "https://store.steampowered.com/api/appdetails",
+            params={"appids": appid, "cc": "br", "l": "portuguese",
+                    "filters": "basic,short_description,genres,release_date"},
+            timeout=10,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        r.raise_for_status()
+        data = r.json().get(str(appid), {})
+        if not data.get("success"):
+            return {}
+        d = data.get("data", {})
+        return {
+            "short_description": d.get("short_description",""),
+            "header_image":      d.get("header_image",""),
+            "genres":            [g["description"] for g in d.get("genres",[])],
+            "release_date":      d.get("release_date",{}).get("date",""),
+        }
+    except Exception:
+        return {}
+
+
 def flag_html(pr, op, pc):
     """Gera badges N/H/S conforme histórico."""
     # Por ora usa o desconto como heurística
@@ -269,8 +301,34 @@ def card(j,i):
   </div>
 </div>""", unsafe_allow_html=True)
 
-    if st.button("Ver detalhes", key=f"c{j['game_id']}{i}", use_container_width=True):
-        st.session_state.update({"jogo_id":j["game_id"],"goto":"🔍 Buscar"}); st.rerun()
+    # Linha de ações: Ver detalhes + Expandir
+    col_det, col_exp = st.columns([5, 1])
+    with col_det:
+        if st.button("Ver detalhes", key=f"c{j['game_id']}{i}", use_container_width=True):
+            st.session_state.update({"jogo_id":j["game_id"],"goto":"🔍 Buscar"}); st.rerun()
+    with col_exp:
+        if st.button("⌄", key=f"exp{j['game_id']}{i}", use_container_width=True,
+                     help="Expandir"):
+            key = f"open_{j['game_id']}"
+            st.session_state[key] = not st.session_state.get(key, False)
+
+    # Painel expandido
+    if st.session_state.get(f"open_{j['game_id']}"):
+        with st.container():
+            desc_data = get_steam_description(j["game_id"])
+            ec1, ec2 = st.columns([1, 2])
+            with ec1:
+                if desc_data.get("header_image"):
+                    st.image(desc_data["header_image"], use_container_width=True)
+            with ec2:
+                if desc_data.get("short_description"):
+                    st.markdown(f"**{j['title']}**")
+                    st.write(desc_data["short_description"])
+                if desc_data.get("genres"):
+                    st.caption("Gêneros: " + ", ".join(desc_data["genres"]))
+                if desc_data.get("release_date"):
+                    st.caption(f"Lançamento: {desc_data['release_date']}")
+            st.markdown("---")
 
 def detalhe(jg):
     ofs=[o for o in ofertas(jg["id"]) if o.get("price") is not None]

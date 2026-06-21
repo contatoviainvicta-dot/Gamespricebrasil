@@ -7,7 +7,7 @@ from supabase import Client, create_client
 st.set_page_config(
     page_title="GamePrice Brasil",
     page_icon="🎮",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="expanded",
 )
 
@@ -18,7 +18,7 @@ st.markdown("""
 [data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,
 [data-testid="stSidebar"] h3 { color:#fff !important; }
 
-/* Layout centralizado nativo do Streamlit */
+
 
 .deal-row {
     display:grid; grid-template-columns:96px 1fr auto;
@@ -267,7 +267,9 @@ if st.session_state.get("goto"):
 
 # ══════════════════════════════════════════════════════════════════════════════
 if pagina == "🏠 Deals":
-    epic   = epic_free()
+    _L, _C, _R = st.columns([1,6,1])
+    with _C:
+     epic   = epic_free()
     c_free = epic.get("current",[])
     n_free = epic.get("next",[])
     if c_free or n_free:
@@ -308,7 +310,9 @@ if pagina == "🏠 Deals":
         for i,j in enumerate(deals): deal_card(j,i)
 
 elif pagina == "🔍 Buscar":
-    jogo_pre = None
+    _L, _C, _R = st.columns([1,6,1])
+    with _C:
+     jogo_pre = None
     if "jogo_id" in st.session_state:
         rows = sb.table("games").select("*").eq("id",st.session_state["jogo_id"]).execute().data
         if rows: jogo_pre = rows[0]
@@ -333,7 +337,9 @@ elif pagina == "🔍 Buscar":
     detalhe_jogo(jogo)
 
 elif pagina == "📚 Catálogo":
-    c1,c2,c3 = st.columns([2,1,1])
+    _L, _C, _R = st.columns([1,6,1])
+    with _C:
+     c1,c2,c3 = st.columns([2,1,1])
     nome_f = c1.text_input("🔍 Nome",key="cat_nome",placeholder="ex.: Elden, Hades...")
     plat_f = c2.selectbox("Plataforma",PLATAFORMAS,key="cat_plat")
     ord_f  = c3.selectbox("Ordenar",["A-Z","Menor preço","Maior desconto"],key="cat_ord")
@@ -368,7 +374,9 @@ elif pagina == "📚 Catálogo":
                     st.rerun()
 
 else:
-    st.subheader("📊 Estatísticas do GamePrice Brasil")
+    _L, _C, _R = st.columns([1,6,1])
+    with _C:
+     st.subheader("📊 Estatísticas do GamePrice Brasil")
     m = metricas()
     c1,c2,c3 = st.columns(3)
     c1.metric("🎮 Jogos",f"{m['total_jogos']:,}")

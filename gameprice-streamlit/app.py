@@ -168,7 +168,7 @@ def render_price_bars(hist_data, preco_atual):
                 "<span><span style='color:#e53935'>■</span> Alto</span></div>",
                 unsafe_allow_html=True)
 
-def painel_expandido(j):
+def painel_expandido(j, idx=0):
     """Painel expansível com descrição, gráfico e preços por loja."""
     desc=get_desc(j["game_id"])
     hist=get_price_history(j["game_id"])
@@ -219,7 +219,7 @@ def painel_expandido(j):
                         "<span style='color:"+prc+";font-weight:700'>"+disc+"R$ "+str(round(pr,2))+"</span></div>",
                         unsafe_allow_html=True)
         st.markdown("")
-        if st.button("🔗 Ver página completa",key="more_"+j["game_id"],
+        if st.button("🔗 Ver página completa",key="more_"+j["game_id"]+str(idx),
                      use_container_width=True,type="primary"):
             st.session_state.update({"jogo_id":j["game_id"],"goto":"🔍 Buscar"}); st.rerun()
 
@@ -265,7 +265,7 @@ def deal_card(j,i):
             st.session_state[k]=not st.session_state.get(k,False)
     if st.session_state.get("open_"+j["game_id"]):
         with st.container(border=True):
-            painel_expandido(j)
+            painel_expandido(j, i)
 
 def detalhe(jg):
     # Deduplicar: manter menor preço por loja
@@ -280,6 +280,17 @@ def detalhe(jg):
     with ca:
         if jg.get("cover_url"): st.image(jg["cover_url"],use_container_width=True)
         st.markdown("**"+jg["title"]+"**"); st.caption(jg["platform"])
+        sid = get_session_id()
+        in_wl = is_in_wishlist(sid, jg["id"])
+        if in_wl:
+            if st.button("❤️ Na Wishlist — Remover", key="wl_rem_"+jg["id"], use_container_width=True):
+                remove_from_wishlist(sid, jg["id"])
+                st.rerun()
+        else:
+            if st.button("🤍 Adicionar à Wishlist", key="wl_add_"+jg["id"], use_container_width=True):
+                add_to_wishlist(sid, jg["id"])
+                st.success("Adicionado à wishlist!")
+                st.rerun()
     with ci:
         if not ofs: st.warning("Sem preços ainda."); return
         mn=float(ofs[0]["price"]); oids=[o["offer_id"] for o in ofs]
@@ -290,6 +301,17 @@ def detalhe(jg):
             m2.metric("💸 Economia",R(float(ofs[0]["old_price"])-mn))
         if ofs[0].get("discount_percent"): m3.metric("🏷️",str(ofs[0]["discount_percent"])+"%")
         if low: st.success("🏷️ Mínimo histórico!")
+        # Estatísticas 30/90 dias
+        stats_map = get_price_stats(oids)
+        if stats_map:
+            best_stat = min(stats_map.values(), key=lambda x: float(x.get("price_min_ever") or 9999))
+            s1,s2,s3 = st.columns(3)
+            if best_stat.get("price_min_ever"):
+                s1.metric("📉 Mínimo histórico", R(best_stat["price_min_ever"]))
+            if best_stat.get("price_min_30d"):
+                s2.metric("📅 Mín. 30 dias", R(best_stat["price_min_30d"]))
+            if best_stat.get("price_min_90d"):
+                s3.metric("📅 Mín. 90 dias", R(best_stat["price_min_90d"]))
         rows=""
         for i,o in enumerate(ofs):
             pr=float(o["price"]); df=pr-mn; dp=(df/mn*100) if mn>0 else 0
@@ -329,10 +351,114 @@ def detalhe(jg):
                 st.success("Alerta criado! Aviso quando "+jg["title"]+" < "+R(al))
             else: st.error("E-mail inválido.")
 
+# ── FASE 1: Wishlist + Estatísticas + Mínimos históricos ─────────────────────
+
+def get_session_id() -> str:
+    """ID de sessão anônimo para wishlist sem login."""
+    if "session_id" not in st.session_state:
+        import uuid
+        st.session_state["session_id"] = str(uuid.uuid4())
+    return st.session_state["session_id"]
+
+@st.cache_data(ttl=60)
+def get_wishlist(session_id: str) -> list[dict]:
+    try:
+        rows = DB.table("wishlists").select(
+            "game_id,target_price,added_at,games(title,cover_url,platform)"
+        ).eq("session_id", session_id).order("added_at", desc=True).execute().data
+        return rows
+    except Exception:
+        return []
+
+def add_to_wishlist(session_id: str, game_id: str, target_price=None):
+    try:
+        DB.table("wishlists").upsert(
+            {"session_id": session_id, "game_id": game_id, "target_price": target_price},
+            on_conflict="session_id,game_id"
+        ).execute()
+        st.cache_data.clear()
+        return True
+    except Exception:
+        return False
+
+def remove_from_wishlist(session_id: str, game_id: str):
+    try:
+        DB.table("wishlists").delete()          .eq("session_id", session_id).eq("game_id", game_id).execute()
+        st.cache_data.clear()
+        return True
+    except Exception:
+        return False
+
+def is_in_wishlist(session_id: str, game_id: str) -> bool:
+    try:
+        r = DB.table("wishlists").select("id")              .eq("session_id", session_id).eq("game_id", game_id).execute().data
+        return len(r) > 0
+    except Exception:
+        return False
+
+@st.cache_data(ttl=300)
+def get_price_stats(offer_ids: list[str]) -> dict:
+    """Retorna estatísticas de preço (min ever, 30d, 90d) por offer_id."""
+    if not offer_ids:
+        return {}
+    try:
+        rows = DB.table("price_statistics").select("*")                 .in_("offer_id", offer_ids).execute().data
+        return {r["offer_id"]: r for r in rows}
+    except Exception:
+        return {}
+
+@st.cache_data(ttl=300)
+def get_historicos_hoje(limite=40) -> list[dict]:
+    """Jogos no mínimo histórico hoje."""
+    try:
+        return DB.table("v_historicos_hoje").select("*").limit(limite).execute().data
+    except Exception:
+        return []
+
+@st.cache_data(ttl=600)
+def recalcular_stats_batch(offer_ids: list[str]) -> None:
+    """Recalcula estatísticas de preço para um lote de ofertas."""
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    d30 = (now - timedelta(days=30)).isoformat()
+    d90 = (now - timedelta(days=90)).isoformat()
+
+    for oid in offer_ids:
+        try:
+            all_p = DB.table("prices").select("price")                      .eq("offer_id", oid).gt("price", 0).execute().data
+            p30   = DB.table("prices").select("price")                      .eq("offer_id", oid).gt("price", 0)                      .gte("captured_at", d30).execute().data
+            p90   = DB.table("prices").select("price")                      .eq("offer_id", oid).gt("price", 0)                      .gte("captured_at", d90).execute().data
+            cur   = DB.table("prices").select("price")                      .eq("offer_id", oid).gt("price", 0)                      .order("captured_at", desc=True).limit(1).execute().data
+
+            if not all_p:
+                continue
+
+            vals     = [float(r["price"]) for r in all_p]
+            vals30   = [float(r["price"]) for r in p30]
+            vals90   = [float(r["price"]) for r in p90]
+            cur_val  = float(cur[0]["price"]) if cur else min(vals)
+            offer_row = DB.table("game_store_offers").select("old_price")                          .eq("id", oid).execute().data
+            orig = float(offer_row[0].get("old_price") or 0) if offer_row else 0
+            disc_max = int((1 - min(vals)/orig)*100) if orig > 0 else 0
+
+            DB.table("price_statistics").upsert({
+                "offer_id":       oid,
+                "price_current":  cur_val,
+                "price_min_ever": min(vals),
+                "price_min_30d":  min(vals30) if vals30 else None,
+                "price_min_90d":  min(vals90) if vals90 else None,
+                "price_avg_90d":  round(sum(vals90)/len(vals90), 2) if vals90 else None,
+                "discount_max":   disc_max,
+                "updated_at":     now.isoformat(),
+            }, on_conflict="offer_id").execute()
+        except Exception:
+            continue
+
+
 # ── SIDEBAR ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("<div style='font-size:1.1rem;font-weight:700;color:#fff;padding:8px 0 4px'>🎮 GamePrice Brasil</div>",unsafe_allow_html=True)
-    pag=st.radio("p",["🏠 Deals","🔍 Buscar","📚 Catálogo","📊 Stats"],label_visibility="collapsed")
+    pag=st.radio("p",["🏠 Deals","🔍 Buscar","📚 Catálogo","❤️ Wishlist","🏆 Históricos","📊 Stats"],label_visibility="collapsed")
     st.markdown("---")
     st.markdown("<div style='font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px'>🏪 Shop</div>",unsafe_allow_html=True)
     dots="".join(["<div style='padding:3px 0;font-size:.82rem'><span style='display:inline-block;width:8px;height:8px;border-radius:50%;background:"+LOJA_DOTS.get(l,"#888")+";margin-right:7px;vertical-align:middle'></span>"+l+"</div>" for l in list(LOJA_DOTS.keys())])
@@ -449,6 +575,71 @@ elif pag=="📚 Catálogo":
                                 "<div style='color:#3a8a3a;font-weight:700;font-size:.82rem'>"+R(j.get("price"))+" "+bx+"</div>",unsafe_allow_html=True)
                     if st.button("Ver",key="ct"+j["game_id"]+str(rs+ci),use_container_width=True):
                         st.session_state.update({"jogo_id":j["game_id"],"goto":"🔍 Buscar"}); st.rerun()
+
+elif pag=="❤️ Wishlist":
+    _,C,_=st.columns(mg)
+    with C:
+        sid=get_session_id()
+        st.subheader("❤️ Minha Wishlist")
+        wl=get_wishlist(sid)
+        if not wl:
+            st.info("Sua wishlist está vazia. Busque um jogo e clique em '🤍 Adicionar à Wishlist'.")
+        else:
+            st.caption(str(len(wl))+" jogos na wishlist")
+            for item in wl:
+                ginfo=item.get("games") or {}
+                gid=item["game_id"]
+                c1,c2,c3=st.columns([1,3,1])
+                with c1:
+                    if ginfo.get("cover_url"): st.image(ginfo["cover_url"],use_container_width=True)
+                with c2:
+                    st.markdown("**"+ginfo.get("title","?")+"**")
+                    st.caption(ginfo.get("platform",""))
+                    # Buscar melhor preço atual
+                    ofs_wl=[o for o in get_ofertas(gid) if o.get("price") is not None]
+                    if ofs_wl:
+                        mn_wl=min(float(o["price"]) for o in ofs_wl)
+                        tp=item.get("target_price")
+                        if tp and mn_wl<=float(tp):
+                            st.success("🎯 Preço alvo atingido! "+R(mn_wl))
+                        else:
+                            st.write("Menor preço: **"+R(mn_wl)+"**")
+                            if tp: st.caption("Alvo: "+R(tp))
+                with c3:
+                    if st.button("🗑️",key="wl_del_"+gid,help="Remover"):
+                        remove_from_wishlist(sid,gid); st.rerun()
+                    if st.button("🔍",key="wl_ver_"+gid,help="Ver jogo"):
+                        st.session_state.update({"jogo_id":gid,"goto":"🔍 Buscar"}); st.rerun()
+                st.divider()
+
+elif pag=="🏆 Históricos":
+    _,C,_=st.columns(mg)
+    with C:
+        st.subheader("🏆 Mínimos históricos atingidos")
+        st.caption("Jogos no menor preço de todos os tempos agora")
+        hist_hoje=get_historicos_hoje(40)
+        if not hist_hoje:
+            st.info("Nenhum mínimo histórico detectado. Os dados são calculados após alguns ciclos do worker.")
+            st.caption("Execute: Actions → update-prices → Run workflow")
+        else:
+            st.caption(str(len(hist_hoje))+" jogos no mínimo histórico")
+            for h in hist_hoje:
+                c1,c2,c3=st.columns([1,3,1])
+                with c1:
+                    if h.get("cover_url"): st.image(h["cover_url"],use_container_width=True)
+                with c2:
+                    st.markdown("**"+h["title"]+"**")
+                    st.caption(h.get("platform","")+" · "+h.get("store",""))
+                    st.markdown(
+                        "<span style='background:#c62828;color:#fff;font-size:.7rem;"
+                        "font-weight:700;padding:2px 6px;border-radius:3px'>🏆 MÍNIMO HISTÓRICO</span>",
+                        unsafe_allow_html=True)
+                with c3:
+                    pr_h=float(h.get("price_current") or 0)
+                    st.markdown("**"+R(pr_h)+"**")
+                    if h.get("discount_max"):
+                        st.caption("-"+str(h["discount_max"])+"%")
+                st.divider()
 
 else:
     _,C,_=st.columns(mg)

@@ -42,50 +42,50 @@ def fetch_steam(appid: str, cc: str = "br", lang: str = "portuguese") -> dict | 
 def fetch_gog(external_id: str) -> dict | None:
     """Busca preço na GOG pelo ID do produto.
 
-    external_id = ID numérico do produto na GOG (ex: 1895136452)
-    Obtido via catalog.gog.com/v1/catalog na primeira indexação.
+    Usa o endpoint individual com fallback para o endpoint em lote.
+    external_id = ID numérico do produto na GOG (ex: 1207658924)
     """
-    try:
-        r = httpx.get(
-            f"https://api.gog.com/products/{external_id}",
-            params={"expand": "prices", "countryCode": "BR"},
-            timeout=15,
-            headers={
-                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
-                "Accept":     "application/json",
-            },
-        )
-        r.raise_for_status()
-        data = r.json()
-    except Exception as exc:
-        print(f"  [gog] erro no id {external_id}: {exc}")
-        return None
-
-    prices = data.get("_embedded", {}).get("prices", [])
-    if not prices:
-        return None
-
-    p = prices[0]
-    final = p.get("finalPrice", "0 BRL").split(" ")[0]
-    base  = p.get("basePrice",  "0 BRL").split(" ")[0]
-
-    try:
-        final_val = round(float(final) / 100, 2)
-        base_val  = round(float(base)  / 100, 2)
-    except (ValueError, TypeError):
-        return None
-
-    if final_val <= 0 and base_val <= 0:
-        return None
-
-    disc = int(((base_val - final_val) / base_val) * 100) if base_val > 0 else 0
-
-    return {
-        "price":            final_val,
-        "old_price":        base_val if base_val != final_val else None,
-        "discount_percent": disc,
-        "available":        True,
-    }
+    # Endpoint 1: individual (mais direto)
+    for endpoint in [
+        f"https://api.gog.com/products/{external_id}?expand=prices&countryCode=BR",
+        f"https://www.gog.com/pt/game/ajax/reviewsPage?gameId={external_id}",
+    ]:
+        try:
+            r = httpx.get(
+                endpoint,
+                timeout=15,
+                headers={
+                    "User-Agent":      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120",
+                    "Accept":          "application/json",
+                    "Accept-Language": "pt-BR,pt;q=0.9",
+                    "Referer":         "https://www.gog.com/pt/",
+                },
+                follow_redirects=True,
+            )
+            if r.status_code != 200:
+                continue
+            data = r.json()
+            prices = data.get("_embedded", {}).get("prices", [])
+            if not prices:
+                continue
+            p = prices[0]
+            final = p.get("finalPrice", "0 BRL").split(" ")[0]
+            base  = p.get("basePrice",  "0 BRL").split(" ")[0]
+            final_val = round(float(final) / 100, 2)
+            base_val  = round(float(base)  / 100, 2)
+            if final_val <= 0 and base_val <= 0:
+                return None
+            disc = int(((base_val - final_val) / base_val) * 100) if base_val > 0 else 0
+            return {
+                "price":            final_val,
+                "old_price":        base_val if base_val != final_val else None,
+                "discount_percent": disc,
+                "available":        True,
+            }
+        except Exception as exc:
+            print(f"  [gog] erro no id {external_id} ({endpoint[:50]}): {exc}")
+            continue
+    return None
 
 
 def search_gog(title: str) -> dict | None:

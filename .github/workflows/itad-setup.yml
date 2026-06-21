@@ -1,0 +1,28 @@
+name: itad-setup
+
+on:
+  workflow_dispatch:   # Só manual — rode UMA VEZ para indexar os jogos no ITAD
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60   # Indexar 700+ jogos leva ~2 min
+    defaults:
+      run:
+        working-directory: gameprice-streamlit
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Setup ITAD - indexar jogos nas lojas GOG/Epic/Nuuvem/Fanatical
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ITAD_API_KEY: ${{ secrets.ITAD_API_KEY }}
+        run: python worker/itad_setup.py

@@ -1,6 +1,7 @@
 """GamePrice Brasil - comparador de precos de jogos (Streamlit + Supabase)."""
 import pandas as pd
 import streamlit as st
+from datetime import datetime, timezone
 from supabase import Client, create_client
 
 st.set_page_config(
@@ -13,40 +14,38 @@ st.set_page_config(
 PLATAFORMAS = ["Todas", "PC", "PS4", "PS5", "XBOX", "SWITCH"]
 MEDALHAS    = {0: "🥇", 1: "🥈", 2: "🥉"}
 
-# CSS minimo — sem fundo escuro, so ajustes de card
 st.markdown("""
 <style>
 .card-title {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #1a1a2e;
-    margin: 4px 0 2px;
-    line-height: 1.3;
+    font-size: 0.85rem; font-weight: 600;
+    color: #1a1a2e; margin: 4px 0 2px; line-height: 1.3;
 }
-.card-price {
-    font-size: 0.95rem;
-    font-weight: 700;
-    color: #e94560;
-}
+.card-price { font-size: 0.95rem; font-weight: 700; color: #e94560; }
 .card-discount {
-    background: #e94560;
-    color: white;
-    font-size: 0.7rem;
-    font-weight: 700;
-    padding: 1px 5px;
-    border-radius: 4px;
-    margin-left: 5px;
+    background: #e94560; color: white;
+    font-size: 0.7rem; font-weight: 700;
+    padding: 1px 5px; border-radius: 4px; margin-left: 5px;
 }
-.card-platform {
-    font-size: 0.72rem;
-    color: #666;
-    margin-top: 2px;
+.card-platform { font-size: 0.72rem; color: #666; margin-top: 2px; }
+.epic-free-card {
+    background: linear-gradient(135deg, #2d0080 0%, #6600cc 100%);
+    border-radius: 12px; padding: 12px; color: white; text-align: center;
+}
+.epic-free-title { font-size: 0.9rem; font-weight: 700; margin: 6px 0 2px; }
+.epic-free-badge {
+    background: #00d4aa; color: #000;
+    font-size: 0.7rem; font-weight: 700;
+    padding: 2px 8px; border-radius: 20px; display: inline-block;
+}
+.epic-next-badge {
+    background: #ff6b35; color: white;
+    font-size: 0.7rem; font-weight: 700;
+    padding: 2px 8px; border-radius: 20px; display: inline-block;
 }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ── Cliente Supabase ──────────────────────────────────────────────────────────
 @st.cache_resource
 def get_client() -> Client:
     cfg = st.secrets["supabase"]
@@ -55,19 +54,25 @@ def get_client() -> Client:
 sb = get_client()
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
 def fmt_preco(valor) -> str:
-    if valor is None:
-        return "-"
-    if float(valor) == 0.0:
-        return "🆓 Gratuito"
+    if valor is None: return "-"
+    if float(valor) == 0.0: return "🆓 Gratuito"
     return f"R$ {float(valor):.2f}"
+
+
+def fmt_data(iso: str) -> str:
+    """Converte ISO date para formato legível."""
+    try:
+        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        return dt.strftime("%d/%m às %H:%Mh")
+    except Exception:
+        return iso[:10]
 
 
 # ── Queries ───────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def buscar_jogos(termo: str, plataforma: str) -> list[dict]:
-    q = sb.table("games").select("id, title, slug, platform, cover_url")
+    q = sb.table("games").select("id,title,slug,platform,cover_url")
     if termo:
         q = q.ilike("title", f"%{termo}%")
     if plataforma != "Todas":
@@ -111,21 +116,32 @@ def catalogo_completo(plataforma: str = "Todas") -> list[dict]:
     q = (
         sb.table("v_game_offers")
         .select("game_id,title,slug,platform,cover_url,price,discount_percent")
-        .order("title")
-        .limit(500)
+        .order("title").limit(500)
     )
     if plataforma != "Todas":
         q = q.eq("platform", plataforma)
     rows = q.execute().data
-    # Mantém só o menor preço por jogo
     visto: dict = {}
     for r in rows:
-        gid = r["game_id"]
-        p_novo = float(r.get("price") or 9999)
-        p_ant  = float(visto[gid].get("price") or 9999) if gid in visto else 9999
-        if gid not in visto or p_novo < p_ant:
+        gid  = r["game_id"]
+        p    = float(r.get("price") or 9999)
+        pant = float(visto[gid].get("price") or 9999) if gid in visto else 9999
+        if gid not in visto or p < pant:
             visto[gid] = r
     return sorted(visto.values(), key=lambda x: x.get("title", ""))
+
+
+@st.cache_data(ttl=1800)  # 30 min — muda só quinta-feira
+def epic_free_games() -> dict:
+    """Lê jogos gratuitos da Epic salvos pelo worker."""
+    try:
+        r = sb.table("epic_free_games").select("current,next,updated_at")\
+               .eq("id", 1).execute().data
+        if r:
+            return r[0]
+    except Exception:
+        pass
+    return {"current": [], "next": [], "updated_at": None}
 
 
 @st.cache_data(ttl=300)
@@ -138,8 +154,7 @@ def ofertas_do_jogo(game_id: str) -> list[dict]:
 
 @st.cache_data(ttl=300)
 def historico_do_jogo(offer_ids: list[str]) -> list[dict]:
-    if not offer_ids:
-        return []
+    if not offer_ids: return []
     return (
         sb.table("prices")
         .select("offer_id,price,captured_at")
@@ -149,8 +164,7 @@ def historico_do_jogo(offer_ids: list[str]) -> list[dict]:
 
 
 def link_afiliado(url: str, codigo: str | None) -> str:
-    if not codigo:
-        return url
+    if not codigo: return url
     sep = "&" if "?" in url else "?"
     return f"{url}{sep}tag={codigo}"
 
@@ -162,7 +176,6 @@ def registrar_alerta(email: str, game_id: str, alvo: float) -> None:
 
 
 def card_jogo(j: dict, key_prefix: str, idx: int) -> None:
-    """Renderiza um card de jogo e retorna True se clicado."""
     if j.get("cover_url"):
         st.image(j["cover_url"], use_container_width=True)
     preco = float(j.get("price") or 0)
@@ -186,10 +199,9 @@ def card_jogo(j: dict, key_prefix: str, idx: int) -> None:
 st.title("🎮 GamePrice Brasil")
 st.caption("Compare preços de jogos em várias lojas e acompanhe o histórico.")
 
-# Redireciona para busca se veio de um card
 if st.session_state.get("ir_busca"):
     st.session_state.pop("ir_busca", None)
-    aba_default = 2   # índice da aba Buscar
+    aba_default = 2
 else:
     aba_default = 0
 
@@ -209,6 +221,59 @@ st.divider()
 # ══════════════════════════════════════════════════════════════════════════════
 if aba == "🏠 Início":
 
+    # ── Jogos gratuitos da Epic ───────────────────────────────────────────────
+    epic = epic_free_games()
+    current_free = epic.get("current", [])
+    next_free    = epic.get("next", [])
+
+    if current_free or next_free:
+        st.subheader("🎁 Grátis na Epic Games")
+
+        col_width = max(1, len(current_free) + len(next_free))
+        cols = st.columns(min(col_width, 6))
+        col_idx = 0
+
+        for g in current_free:
+            with cols[col_idx % 6]:
+                if g.get("image_url"):
+                    st.image(g["image_url"], use_container_width=True)
+                end = fmt_data(g["end_date"]) if g.get("end_date") else ""
+                st.markdown(
+                    f'<div class="epic-free-title">{g["title"]}</div>'
+                    f'<span class="epic-free-badge">🎁 GRÁTIS AGORA</span>'
+                    f'{"<br><small style='color:#666'>até " + end + "</small>" if end else ""}',
+                    unsafe_allow_html=True,
+                )
+                st.link_button(
+                    "Pegar grátis na Epic →",
+                    g.get("store_url", "https://store.epicgames.com/pt-BR/free-games"),
+                    use_container_width=True,
+                )
+            col_idx += 1
+
+        for g in next_free:
+            with cols[col_idx % 6]:
+                if g.get("image_url"):
+                    st.image(g["image_url"], use_container_width=True)
+                start = fmt_data(g["start_date"]) if g.get("start_date") else ""
+                st.markdown(
+                    f'<div class="epic-free-title">{g["title"]}</div>'
+                    f'<span class="epic-next-badge">🔜 EM BREVE</span>'
+                    f'{"<br><small style='color:#666'>a partir de " + start + "</small>" if start else ""}',
+                    unsafe_allow_html=True,
+                )
+            col_idx += 1
+
+        if epic.get("updated_at"):
+            st.caption(f"Atualizado: {fmt_data(epic['updated_at'])}")
+        st.divider()
+    else:
+        # Tabela não existe ainda ou worker não rodou
+        st.info("🎁 Execute o SQL `epic_setup.sql` no Supabase e rode o worker "
+                "para ver os jogos gratuitos da Epic aqui.")
+        st.divider()
+
+    # ── Maiores descontos ─────────────────────────────────────────────────────
     st.subheader("🔥 Maiores descontos agora")
     destaques = jogos_com_desconto(12)
 
@@ -222,6 +287,8 @@ if aba == "🏠 Início":
                 "(GitHub → Actions → update-prices → Run workflow).")
 
     st.divider()
+
+    # ── Mais baratos ──────────────────────────────────────────────────────────
     st.subheader("💰 Jogos mais baratos")
     plat_home = st.selectbox("Filtrar plataforma", PLATAFORMAS, key="plat_home")
     baratos   = jogos_mais_baratos(plat_home, 12)
@@ -233,7 +300,8 @@ if aba == "🏠 Início":
                 card_jogo(j, "bar", i)
 
     st.divider()
-    st.caption(f"📊 {total_jogos()} jogos no catálogo · Preços atualizados a cada 6h")
+    total = total_jogos()
+    st.caption(f"📊 {total} jogos · Steam · Epic · Preços atualizados a cada 6h")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -268,9 +336,8 @@ elif aba == "📚 Catálogo":
         st.stop()
 
     for row_start in range(0, len(jogos), 6):
-        row_jogos = jogos[row_start:row_start + 6]
         cols = st.columns(6)
-        for ci, j in enumerate(row_jogos):
+        for ci, j in enumerate(jogos[row_start:row_start + 6]):
             with cols[ci]:
                 card_jogo(j, "cat", row_start + ci)
 
@@ -279,8 +346,6 @@ elif aba == "📚 Catálogo":
 # ABA: BUSCAR / DETALHE
 # ══════════════════════════════════════════════════════════════════════════════
 else:
-
-    # Pre-carrega jogo se veio de um card
     jogo_pre = None
     if "jogo_id" in st.session_state:
         g = sb.table("games").select("*")\
@@ -301,10 +366,10 @@ else:
         jogo_pre = None
 
     if not termo and jogo_pre is None:
-        st.info("Digite o nome de um jogo ou navegue pelo **Catálogo** e clique em 'Ver detalhes'.")
+        st.info("Digite o nome de um jogo ou navegue pelo **Catálogo** "
+                "e clique em 'Ver detalhes'.")
         st.stop()
 
-    # Resolve o jogo a exibir
     if termo:
         jogos = buscar_jogos(termo, plat_b)
         if not jogos:
@@ -336,7 +401,6 @@ else:
             st.warning("Ainda não há preços. Aguarde o próximo ciclo do worker (6h).")
         else:
             menor = float(ofertas[0]["price"])
-
             m1, m2, m3 = st.columns(3)
             m1.metric("💰 Menor preço", fmt_preco(menor))
             if ofertas[0].get("old_price") and float(ofertas[0]["old_price"]) > 0:
@@ -366,8 +430,10 @@ else:
             for o in ofertas:
                 url   = link_afiliado(o["product_url"], o.get("affiliate_code"))
                 preco = float(o["price"])
-                label = (f"🆓 Jogar de graça na {o['store']}" if preco == 0
-                         else f"🛒 Comprar na {o['store']} — {fmt_preco(preco)}")
+                loja  = o["store"]
+                emoji = "🟣" if "Epic" in loja else "🟦"
+                label = (f"🆓 Jogar de graça na {loja}" if preco == 0
+                         else f"{emoji} Comprar na {loja} — {fmt_preco(preco)}")
                 st.link_button(label, url, use_container_width=True)
 
             st.markdown("### 📈 Histórico de preços")

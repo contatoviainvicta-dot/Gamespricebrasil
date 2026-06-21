@@ -142,25 +142,63 @@ def stats():
     return {"jogos":n_jogos(),"precos":tp,"lojas":sorted(cont,key=lambda x:x["ofertas"],reverse=True)}
 
 # ── SIDEBAR ───────────────────────────────────────────────────────────────────
+LOJA_DOTS = {
+    "Steam":       "#4caf50",
+    "GOG":         "#ff9800",
+    "Humble Store":"#f44336",
+    "Epic Games":  "#9c27b0",
+    "Nuuvem":      "#2196f3",
+    "Fanatical":   "#ff5722",
+}
+
 with st.sidebar:
-    st.markdown("## 🎮 GamePrice Brasil")
-    st.divider()
-    pag = st.radio("p",["🏠 Deals","🔍 Buscar","📚 Catálogo","📊 Stats"],label_visibility="collapsed")
-    st.divider()
-    st.markdown("**Filtros**")
-    fp = st.selectbox("Plataforma",PLAT,key="fp")
-    fl = st.selectbox("Loja",LOJAS,key="fl")
-    fd = st.slider("Desconto mín.",0,90,0,10,key="fd",format="%d%%")
-    fm = st.select_slider("Preço máx.",["Qualquer","R$ 5","R$ 25","R$ 50","R$ 100","R$ 150"],value="Qualquer",key="fm")
-    st.divider()
+    st.markdown("""
+    <div style="font-size:1.1rem;font-weight:700;color:#fff;padding:8px 0 4px">
+    🎮 GamePrice Brasil
+    </div>""", unsafe_allow_html=True)
+
+    pag = st.radio("p",["🏠 Deals","🔍 Buscar","📚 Catálogo","📊 Stats"],
+                   label_visibility="collapsed")
+    st.markdown("---")
+
+    # Shop
+    st.markdown('<div style="font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">🏪 Shop</div>', unsafe_allow_html=True)
+    lojas_disponiveis = ["Steam","GOG","Humble Store","Epic Games","Nuuvem","Fanatical"]
+    dots_html = ""
+    for l in lojas_disponiveis:
+        cor = LOJA_DOTS.get(l,"#888")
+        dots_html += f'<div style="padding:3px 0;font-size:.82rem;cursor:pointer">'                     f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;'                     f'background:{cor};margin-right:7px;vertical-align:middle"></span>{l}</div>'
+    st.markdown(dots_html, unsafe_allow_html=True)
+    fl = st.selectbox("",["Todas"]+lojas_disponiveis,key="fl",label_visibility="collapsed")
+    st.markdown("---")
+
+    # Price
+    st.markdown('<div style="font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">💰 Price</div>', unsafe_allow_html=True)
+    fm = st.radio("pm",["Qualquer","Até R$ 5","Até R$ 25","Até R$ 50","Até R$ 100","Até R$ 150"],
+                  key="fm", label_visibility="collapsed")
+    st.markdown("---")
+
+    # Price Cut
+    st.markdown('<div style="font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">🏷️ Price Cut</div>', unsafe_allow_html=True)
+    fd = st.radio("pc",["Qualquer","25% ou mais","50% ou mais","75% ou mais","90% ou mais"],
+                  key="fd", label_visibility="collapsed")
+    st.markdown("---")
+
+    # Plataforma
+    st.markdown('<div style="font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">🎮 Plataforma</div>', unsafe_allow_html=True)
+    fp = st.radio("pp",PLAT,key="fp",label_visibility="collapsed")
+    st.markdown("---")
+
+    # Epic free
     ep=epic(); cf=ep.get("current",[])
     if cf:
-        st.markdown("**🎁 Grátis na Epic**")
+        st.markdown('<div style="font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">🎁 Grátis na Epic</div>', unsafe_allow_html=True)
         for g in cf:
-            st.markdown(f"• **{g['title']}**")
+            st.markdown(f'<div style="font-size:.8rem;color:#c6d4df;padding:2px 0">• {g["title"]}</div>', unsafe_allow_html=True)
             if g.get("end_date"): st.caption(f"até {DT(g['end_date'])}")
         st.link_button("Ver na Epic →","https://store.epicgames.com/pt-BR/free-games",use_container_width=True)
-    st.divider()
+        st.markdown("---")
+
     st.caption(f"📊 {n_jogos()} jogos · Steam · GOG · Humble")
 
 # ── COMPONENTES ───────────────────────────────────────────────────────────────
@@ -273,10 +311,18 @@ if pag == "🏠 Deals":
                     st.markdown(f'<span class="b b-amber">EM BREVE</span>',unsafe_allow_html=True)
             st.divider()
 
-        pm=None
-        if fm!="Qualquer": pm=float(fm.replace("R$ ",""))
+        # Converter filtros de radio para valores numéricos
+        pm = None
+        if fm != "Qualquer":
+            pm = float(fm.replace("Até R$ ","").replace(".","").replace(",","."))
+        disc_min = 0
+        if fd != "Qualquer":
+            disc_min = int(fd.split("%")[0])
+        loja_sel = fl if fl != "Todas" else "Todas"
+        plat_sel = fp if fp != "Todas" else "Todas"
+
         st.markdown('<div class="sh">🔥 Melhores deals agora</div>',unsafe_allow_html=True)
-        ds=deals(fl,fp,fd,60)
+        ds=deals(loja_sel,plat_sel,disc_min,60)
         if pm: ds=[d for d in ds if float(d.get("price") or 0)<=pm]
         if not ds: st.info("Nenhum deal com esses filtros.")
         else:

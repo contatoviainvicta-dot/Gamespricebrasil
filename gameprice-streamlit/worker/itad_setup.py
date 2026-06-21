@@ -1,57 +1,38 @@
-"""Setup inicial do ITAD: descobre os ITAD IDs dos jogos e indexa preços
-de GOG, Epic, Nuuvem, Fanatical e outras lojas.
-
-Rode UMA VEZ (workflow itad-setup) depois de configurar ITAD_API_KEY.
+"""Setup inicial do ITAD: indexa preços de GOG, Epic, Nuuvem, Fanatical.
+Rode UMA VEZ via workflow itad-setup.
 """
-import os, sys, time, json
+import os, sys, time
 import httpx
 from supabase import create_client
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-URL      = os.environ["SUPABASE_URL"]
-KEY      = os.environ["SUPABASE_SERVICE_KEY"]
-ITAD_KEY = os.environ.get("ITAD_API_KEY", "")
+URL       = os.environ["SUPABASE_URL"]
+KEY       = os.environ["SUPABASE_SERVICE_KEY"]
+ITAD_KEY  = os.environ.get("ITAD_API_KEY", "")
 ITAD_BASE = "https://api.isthereanydeal.com"
 
-# Lojas que queremos cobrir — IDs reais do ITAD
-# Descobertos via GET /shops/v1
-LOJAS_ALVO = {
-    "gog":          "GOG",
-    "epic":         "Epic Games",
-    "nuuvem":       "Nuuvem",
-    "fanatical":    "Fanatical",
-    "humblestore":  "Humble Store",
-    "gmg":          "Green Man Gaming",
+# Mapeamento: ITAD shop_id (inteiro) → slug interno do banco
+# Descobertos via teste diagnóstico
+ITAD_SHOP_MAP = {
+    35: "gog",          # GOG
+    61: "steam",        # Steam (já temos, mas útil para confirmar)
+    37: "humblestore",  # Humble Store
+    # Epic e Nuuvem: IDs a confirmar no primeiro run
+    # Adicionamos mais conforme os deals aparecerem
+}
+
+# Lojas que queremos criar no banco (além das já existentes)
+LOJAS_CRIAR = {
+    "gog":         "GOG",
+    "humblestore": "Humble Store",
+    "nuuvem":      "Nuuvem",
+    "fanatical":   "Fanatical",
+    "gmg":         "Green Man Gaming",
 }
 
 
-def get_itad_shops() -> dict:
-    """Busca mapeamento id→name das lojas do ITAD."""
-    try:
-        r = httpx.get(
-            f"{ITAD_BASE}/shops/v1",
-            params={"key": ITAD_KEY},
-            headers={"User-Agent": "GamePriceBrasil/1.0"},
-            timeout=10,
-        )
-        r.raise_for_status()
-        shops = r.json()
-        mapa = {s["id"]: s["title"] for s in shops}
-        print(f"Lojas disponíveis no ITAD: {len(mapa)}")
-        # Mostrar lojas relevantes
-        for sid, nome in mapa.items():
-            if any(k in sid.lower() or k in nome.lower()
-                   for k in ["gog","epic","nuuvem","fanatical","humble"]):
-                print(f"  {sid} → {nome}")
-        return mapa
-    except Exception as e:
-        print(f"  [shops] erro: {e}")
-        return {}
-
-
 def itad_lookup(title: str) -> str | None:
-    """Busca ITAD ID por título."""
     try:
         r = httpx.get(
             f"{ITAD_BASE}/games/search/v1",
@@ -67,38 +48,22 @@ def itad_lookup(title: str) -> str | None:
         return None
 
 
-def itad_prices(itad_ids: list[str]) -> dict:
-    """Busca preços de múltiplos jogos — tenta com BR e sem country."""
-    resultado = {}
-    for country in ["BR", None]:
-        try:
-            params = {"key": ITAD_KEY}
-            if country:
-                params["country"] = country
-            r = httpx.post(
-                f"{ITAD_BASE}/games/prices/v3",
-                params=params,
-                json=itad_ids,
-                headers={
-                    "Content-Type": "application/json",
-                    "User-Agent":   "GamePriceBrasil/1.0",
-                },
-                timeout=20,
-            )
-            r.raise_for_status()
-            data = r.json()
-            for item in data:
-                gid   = item.get("id", "")
-                deals = item.get("deals", [])
-                if deals and gid not in resultado:
-                    resultado[gid] = deals
-            if resultado:
-                print(f"  Preços obtidos com country={country}: {len(resultado)} jogos")
-                break
-        except Exception as e:
-            print(f"  [prices] country={country}: {e}")
-
-    return resultado
+def itad_prices_lote(itad_ids: list[str], country: str = "BR") -> dict:
+    """Busca preços em lote. Retorna {itad_id: [deals]}."""
+    try:
+        r = httpx.post(
+            f"{ITAD_BASE}/games/prices/v3",
+            params={"key": ITAD_KEY, "country": country},
+            json=itad_ids,
+            headers={"Content-Type": "application/json",
+                     "User-Agent": "GamePriceBrasil/1.0"},
+            timeout=30,
+        )
+        r.raise_for_status()
+        return {item["id"]: item.get("deals", []) for item in r.json()}
+    except Exception as e:
+        print(f"  [prices] {e}")
+        return {}
 
 
 def run() -> None:
@@ -108,52 +73,80 @@ def run() -> None:
 
     sb = create_client(URL, KEY)
 
-    # 1. Descobrir IDs reais das lojas no ITAD
-    print("=== Descobrindo lojas do ITAD ===")
-    shops_disponiveis = get_itad_shops()
-
-    # 2. Garantir que as lojas existem no banco
+    # 1. Garantir lojas no banco e montar mapa slug→db_id
     lojas_db = {}
-    for slug, nome in LOJAS_ALVO.items():
+    for slug, nome in LOJAS_CRIAR.items():
         try:
             r = sb.table("stores").upsert(
                 {"name": nome, "slug": slug, "active": True},
                 on_conflict="slug"
             ).execute()
-            if r.data:
-                lojas_db[slug] = r.data[0]["id"]
-            else:
+            lid = r.data[0]["id"] if r.data else None
+            if not lid:
                 g = sb.table("stores").select("id").eq("slug", slug).execute().data
-                if g:
-                    lojas_db[slug] = g[0]["id"]
+                lid = g[0]["id"] if g else None
+            if lid:
+                lojas_db[slug] = lid
         except Exception as e:
-            print(f"  Erro ao criar loja {slug}: {e}")
+            print(f"  Erro loja {slug}: {e}")
 
-    print(f"\nLojas no banco: {list(lojas_db.keys())}")
+    # Incluir lojas já existentes (steam, epic)
+    for row in sb.table("stores").select("id,slug").execute().data:
+        lojas_db[row["slug"]] = row["id"]
 
-    # 3. Testar com um jogo conhecido antes de processar tudo
-    print("\n=== Teste com The Witcher 3 ===")
+    print(f"Lojas no banco: {list(lojas_db.keys())}")
+
+    # 2. Descobrir IDs ITAD de todas as lojas (primeiro lote de teste)
+    print("\n=== Mapeando IDs das lojas ITAD ===")
     test_id = itad_lookup("The Witcher 3")
-    print(f"ITAD ID: {test_id}")
     if test_id:
-        test_prices = itad_prices([test_id])
-        deals = test_prices.get(test_id, [])
-        print(f"Deals encontrados: {len(deals)}")
-        for d in deals[:10]:
+        deals_teste = itad_prices_lote([test_id]).get(test_id, [])
+        shop_map_descoberto = {}
+        for d in deals_teste:
             shop = d.get("shop", {})
-            price = d.get("price", {})
-            print(f"  shop_id={shop.get('id')} | "
-                  f"shop_name={shop.get('name')} | "
-                  f"price={price.get('amount')} {price.get('currency')}")
+            sid  = shop.get("id")
+            nome = shop.get("name", "")
+            shop_map_descoberto[sid] = nome
+            print(f"  ITAD shop_id={sid} → {nome}")
 
-    # 4. Processar todos os jogos
-    print("\n=== Indexando catálogo completo ===")
+        # Atualizar mapa com os descobertos
+        for sid, nome in shop_map_descoberto.items():
+            nome_lower = nome.lower()
+            if "gog" in nome_lower:
+                ITAD_SHOP_MAP[sid] = "gog"
+            elif "epic" in nome_lower:
+                ITAD_SHOP_MAP[sid] = "epic"
+            elif "nuuvem" in nome_lower:
+                ITAD_SHOP_MAP[sid] = "nuuvem"
+            elif "fanatical" in nome_lower:
+                ITAD_SHOP_MAP[sid] = "fanatical"
+            elif "humble" in nome_lower:
+                ITAD_SHOP_MAP[sid] = "humblestore"
+            elif "green man" in nome_lower or "gmg" in nome_lower:
+                ITAD_SHOP_MAP[sid] = "gmg"
+
+    print(f"\nMapa de lojas ITAD: {ITAD_SHOP_MAP}")
+
+    # Filtrar só as lojas que temos no banco E não são Steam
+    lojas_alvo = {
+        sid: slug for sid, slug in ITAD_SHOP_MAP.items()
+        if slug != "steam" and slug in lojas_db
+    }
+    print(f"Lojas alvo: {lojas_alvo}")
+
+    if not lojas_alvo:
+        print("AVISO: nenhuma loja alvo mapeada. "
+              "Verificar se GOG (id=35) está no ITAD_SHOP_MAP.")
+        # Forçar GOG id=35 mesmo assim
+        lojas_alvo[35] = "gog"
+
+    # 3. Indexar todos os jogos
+    print(f"\n=== Indexando catálogo ===")
     jogos = sb.table("games").select("id,title,slug")\
-              .eq("platform","PC").order("title").execute().data
+              .eq("platform", "PC").order("title").execute().data
     print(f"{len(jogos)} jogos para indexar")
 
-    novos = 0
-    erros = 0
+    novos = erros = 0
     lote_ids   = []
     lote_jogos = []
 
@@ -169,40 +162,47 @@ def run() -> None:
 
         # Processa em lotes de 20
         if len(lote_ids) >= 20 or i == len(jogos):
-            prices = itad_prices(lote_ids)
+            prices = itad_prices_lote(lote_ids)
 
             for jg in lote_jogos:
                 deals = prices.get(jg["itad_id"], [])
                 lojas_achadas = []
-                for d in deals:
-                    shop_id = d.get("shop", {}).get("id", "")
-                    # Verifica se é uma loja que queremos
-                    for slug in LOJAS_ALVO:
-                        if slug in shop_id.lower():
-                            loja_db_id = lojas_db.get(slug)
-                            if not loja_db_id:
-                                continue
-                            external_id = f"ITAD|{slug}|{jg['itad_id']}"
-                            url_deal = d.get("url", "")
-                            try:
-                                sb.table("game_store_offers").upsert({
-                                    "game_id":     jg["id"],
-                                    "store_id":    loja_db_id,
-                                    "external_id": external_id,
-                                    "product_url": url_deal or f"https://isthereanydeal.com/",
-                                    "active":      True,
-                                }, on_conflict="store_id,external_id").execute()
-                                novos += 1
-                                lojas_achadas.append(slug)
-                            except Exception as e:
-                                print(f"  Erro ao inserir {jg['title']}/{slug}: {e}")
 
-                status = f"lojas: {lojas_achadas}" if lojas_achadas else "sem lojas alvo"
-                print(f"  [{i}/{len(jogos)}] {jg['title'][:40]} → {status}")
+                for d in deals:
+                    shop_id_num = d.get("shop", {}).get("id")  # inteiro
+                    if shop_id_num not in lojas_alvo:
+                        continue
+                    slug      = lojas_alvo[shop_id_num]
+                    db_loja_id = lojas_db.get(slug)
+                    if not db_loja_id:
+                        continue
+
+                    external_id = f"ITAD|{slug}|{jg['itad_id']}"
+                    url_deal    = d.get("url", "")
+                    price_val   = d.get("price", {}).get("amount", 0)
+                    currency    = d.get("price", {}).get("currency", "BRL")
+
+                    try:
+                        sb.table("game_store_offers").upsert({
+                            "game_id":     jg["id"],
+                            "store_id":    db_loja_id,
+                            "external_id": external_id,
+                            "product_url": url_deal,
+                            "active":      True,
+                        }, on_conflict="store_id,external_id").execute()
+                        novos += 1
+                        lojas_achadas.append(
+                            f"{slug}({price_val}{currency})")
+                    except Exception as e:
+                        print(f"  Erro {jg['title']}/{slug}: {e}")
+
+                if lojas_achadas:
+                    print(f"  [{i}/{len(jogos)}] {jg['title'][:40]} "
+                          f"→ {lojas_achadas}")
 
             lote_ids   = []
             lote_jogos = []
-            time.sleep(0.5)  # Pausa entre lotes
+            time.sleep(0.5)
 
     print(f"\nResumo: {novos} ofertas criadas | {erros} sem ITAD ID")
 

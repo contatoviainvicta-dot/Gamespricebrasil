@@ -7,7 +7,7 @@ from supabase import Client, create_client
 st.set_page_config(
     page_title="GamePrice Brasil",
     page_icon="🎮",
-    layout="wide",
+    layout="centered",
     initial_sidebar_state="expanded",
 )
 
@@ -18,8 +18,7 @@ st.markdown("""
 [data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,
 [data-testid="stSidebar"] h3 { color:#fff !important; }
 
-/* Margem lateral — simula o espaço branco do ITAD */
-section[data-testid="stMain"] > div { padding-left:8% !important; padding-right:8% !important; }
+/* Layout centralizado nativo do Streamlit */
 
 .deal-row {
     display:grid; grid-template-columns:96px 1fr auto;

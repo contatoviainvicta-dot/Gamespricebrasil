@@ -202,6 +202,76 @@ with st.sidebar:
     st.caption(f"📊 {n_jogos()} jogos · Steam · GOG · Humble")
 
 # ── COMPONENTES ───────────────────────────────────────────────────────────────
+@st.cache_data(ttl=600)
+def get_price_history(game_id: str) -> list[dict]:
+    """Busca histórico de preços de todas as ofertas de um jogo."""
+    try:
+        offer_ids = [o["offer_id"] for o in
+                     SB.table("v_game_offers").select("offer_id")
+                     .eq("game_id", game_id).execute().data]
+        if not offer_ids:
+            return []
+        rows = (SB.table("prices")
+                .select("price,captured_at,offer_id")
+                .in_("offer_id", offer_ids)
+                .gt("price", 0)
+                .order("captured_at")
+                .execute().data)
+        return rows
+    except Exception:
+        return []
+
+
+def render_price_bars(hist_data: list[dict], preco_atual):
+    """Renderiza grafico de barras verticais estilo ITAD."""
+    import pandas as pd
+    df = pd.DataFrame(hist_data)
+    df["captured_at"] = pd.to_datetime(df["captured_at"], utc=True)
+    df["price"] = df["price"].astype(float)
+    df["dia"] = df["captured_at"].dt.date
+    df_day = df.groupby("dia")["price"].min().reset_index().tail(90)
+    if df_day.empty:
+        st.caption("Sem historico suficiente.")
+        return
+    preco_max = df_day['price'].max()
+    preco_min = df_day['price'].min()
+    preco_at  = float(preco_atual or preco_min)
+    n    = len(df_day)
+    w    = max(4, min(8, 600 // max(n, 1)))
+    gap  = 1
+    h    = 60
+    tot_w = n * (w + gap)
+    bars = ''
+    for idx, (_, row) in enumerate(df_day.iterrows()):
+        p   = row['price']
+        bh  = max(4, int(h * (1 - (p - preco_min) / (preco_max - preco_min + .01) * .7)))
+        by  = h - bh
+        x   = idx * (w + gap)
+        if p <= preco_min * 1.05:  cor = '#43a047'
+        elif p <= preco_min * 1.5: cor = '#fb8c00'
+        else:                       cor = '#e53935'
+        bars += "<rect x='" + str(x) + "' y='" + str(by) + "' width='" + str(w) + "' height='" + str(bh) + "' fill='" + cor + "' rx='1'/>"
+    d0 = str(df_day['dia'].iloc[0])
+    d1 = str(df_day['dia'].iloc[-1])
+    svg = (
+        '<svg viewBox="0 0 ' + str(tot_w) + ' ' + str(h+20) + '" xmlns="http://www.w3.org/2000/svg"'
+        ' style="width:100%;max-width:600px;height:80px">'
+        '<rect width="' + str(tot_w) + '" height="' + str(h) + '" fill="#f5f7f9" rx="4"/>'
+        + bars +
+        '<text x="0" y="' + str(h+14) + '" font-size="9" fill="#90a4b0">' + d0 + '</text>'
+        '<text x="' + str(tot_w) + '" y="' + str(h+14) + '" font-size="9" fill="#90a4b0" text-anchor="end">' + d1 + '</text>'
+        '<text x="' + str(tot_w//2) + '" y="' + str(h+14) + '" font-size="9" fill="#546e7a" text-anchor="middle">'
+        'Min: R$ ' + str(round(preco_min,2)) + ' · Max: R$ ' + str(round(preco_max,2)) + '</text>'
+        '</svg>'
+    )
+    st.markdown(svg, unsafe_allow_html=True)
+    st.markdown(
+        '<div style="display:flex;gap:12px;font-size:.72rem;color:#546e7a;margin-top:2px">'
+        '<span><span style="color:#43a047">■</span> Minimo</span>'
+        '<span><span style="color:#fb8c00">■</span> Medio</span>'
+        '<span><span style="color:#e53935">■</span> Alto</span>'
+        '</div>', unsafe_allow_html=True
+    )
 @st.cache_data(ttl=3600)
 def get_steam_description(game_id: str) -> dict:
     """Busca descrição do jogo na Steam via appid salvo no banco."""
@@ -315,19 +385,28 @@ def card(j,i):
     # Painel expandido
     if st.session_state.get(f"open_{j['game_id']}"):
         with st.container():
-            desc_data = get_steam_description(j["game_id"])
+            desc_data  = get_steam_description(j["game_id"])
+            hist_data  = get_price_history(j["game_id"])
+
+            # Linha 1: imagem + descrição + scores por loja
             ec1, ec2 = st.columns([1, 2])
             with ec1:
                 if desc_data.get("header_image"):
                     st.image(desc_data["header_image"], use_container_width=True)
-            with ec2:
-                if desc_data.get("short_description"):
-                    st.markdown(f"**{j['title']}**")
-                    st.write(desc_data["short_description"])
                 if desc_data.get("genres"):
-                    st.caption("Gêneros: " + ", ".join(desc_data["genres"]))
+                    st.caption("🏷 " + " · ".join(desc_data["genres"]))
                 if desc_data.get("release_date"):
-                    st.caption(f"Lançamento: {desc_data['release_date']}")
+                    st.caption(f"📅 {desc_data['release_date']}")
+            with ec2:
+                st.markdown(f"### {j['title']}")
+                if desc_data.get("short_description"):
+                    st.write(desc_data["short_description"])
+
+            # Linha 2: gráfico de histórico de preços (barras verticais estilo ITAD)
+            if hist_data:
+                st.markdown("**📊 Histórico de preços (últimos 90 dias)**")
+                render_price_bars(hist_data, j.get("price"))
+
             st.markdown("---")
 
 def detalhe(jg):

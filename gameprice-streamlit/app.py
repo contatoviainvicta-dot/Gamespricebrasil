@@ -160,7 +160,7 @@ def render_price_bars(hist_data, preco_atual):
          +"<text x='2' y='"+str(h+13)+"' font-size='8' fill='#90a4b0'>"+d0+"</text>"
          "<text x='"+str(tw-2)+"' y='"+str(h+13)+"' font-size='8' fill='#90a4b0' text-anchor='end'>"+d1+"</text>"
          "<text x='"+str(tw//2)+"' y='"+str(h+13)+"' font-size='8' fill='#37474f' text-anchor='middle'>"
-         "Min: R$ "+str(round(pmin,2))+"  Max: R$ "+str(round(pmax,2))+"</text></svg>")
+         "Min: R$"+str(round(pmin,2))+" | Max: R$"+str(round(pmax,2))+"</text></svg>")
     st.markdown(svg,unsafe_allow_html=True)
     st.markdown("<div style='display:flex;gap:12px;font-size:.7rem;color:#607d8b'>"
                 "<span><span style='color:#43a047'>■</span> Mínimo</span>"
@@ -172,8 +172,13 @@ def painel_expandido(j):
     """Painel expansível com descrição, gráfico e preços por loja."""
     desc=get_desc(j["game_id"])
     hist=get_price_history(j["game_id"])
-    ofs=sorted([o for o in get_ofertas(j["game_id"]) if o.get("price") is not None],
-               key=lambda o:float(o["price"]))
+    _all2 = [o for o in get_ofertas(j["game_id"]) if o.get("price") is not None]
+    _seen2 = {}
+    for o in sorted(_all2, key=lambda o: float(o["price"])):
+        lj = o.get("store","")
+        if lj not in _seen2:
+            _seen2[lj] = o
+    ofs = sorted(_seen2.values(), key=lambda o: float(o["price"]))
 
     pa,pb=st.columns([1,2])
     with pa:
@@ -263,7 +268,14 @@ def deal_card(j,i):
             painel_expandido(j)
 
 def detalhe(jg):
-    ofs=sorted([o for o in get_ofertas(jg["id"]) if o.get("price") is not None],key=lambda o:float(o["price"]))
+    # Deduplicar: manter menor preço por loja
+    _all_ofs = [o for o in get_ofertas(jg["id"]) if o.get("price") is not None]
+    _seen_lojas = {}
+    for o in sorted(_all_ofs, key=lambda o: float(o["price"])):
+        lj = o.get("store","")
+        if lj not in _seen_lojas:
+            _seen_lojas[lj] = o
+    ofs = sorted(_seen_lojas.values(), key=lambda o: float(o["price"]))
     ca,ci=st.columns([1,2.5])
     with ca:
         if jg.get("cover_url"): st.image(jg["cover_url"],use_container_width=True)

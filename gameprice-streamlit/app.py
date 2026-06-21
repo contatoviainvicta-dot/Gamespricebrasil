@@ -244,9 +244,12 @@ if aba == "🏠 Início":
                     f'{"<br><small style='color:#666'>até " + end + "</small>" if end else ""}',
                     unsafe_allow_html=True,
                 )
+                # Usa sempre a página de free-games como destino seguro.
+                # O slug individual da API às vezes é interno e gera 404.
+                epic_url = "https://store.epicgames.com/pt-BR/free-games"
                 st.link_button(
                     "Pegar grátis na Epic →",
-                    g.get("store_url", "https://store.epicgames.com/pt-BR/free-games"),
+                    epic_url,
                     use_container_width=True,
                 )
             col_idx += 1

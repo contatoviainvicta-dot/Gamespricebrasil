@@ -1,34 +1,103 @@
-"""Worker de atualização de preços."""
+"""Worker de atualização de preços — Steam individual + ITAD em lote."""
 import os, sys, time
 from supabase import create_client
+import httpx
 
 sys.path.insert(0, os.path.dirname(__file__))
-from connectors import (
-    fetch_steam, fetch_gog, fetch_humblestore,
-    fetch_epic, fetch_mercadolivre, fetch_amazon,
-    fetch_epic_free_games,
-)
+from connectors import fetch_steam, fetch_epic_free_games
 
-URL = os.environ["SUPABASE_URL"]
-KEY = os.environ["SUPABASE_SERVICE_KEY"]
+URL       = os.environ["SUPABASE_URL"]
+KEY       = os.environ["SUPABASE_SERVICE_KEY"]
+ITAD_KEY  = os.environ.get("ITAD_API_KEY", "")
+ITAD_BASE = "https://api.isthereanydeal.com"
 
-FETCHERS = {
-    "steam":        fetch_steam,
-    "gog":          fetch_gog,
-    "humblestore":  fetch_humblestore,
-    "epic":         fetch_epic,
-    "mercadolivre": fetch_mercadolivre,
-    "amazon":       fetch_amazon,
+# shop_id ITAD (inteiro) → slug do banco
+ITAD_SHOP_MAP = {
+    35: "gog",
+    37: "humblestore",
 }
 
-RATE_LIMITS = {
-    "steam":       2.0,
-    "gog":         0.5,
-    "humblestore": 0.5,
-    "epic":        0.5,
-    "mercadolivre":0.8,
-    "amazon":      1.0,
-}
+
+# ── ITAD em lote ──────────────────────────────────────────────────────────────
+
+def itad_prices_lote(itad_ids: list[str], country: str = "BR") -> dict:
+    """Busca preços de até 20 jogos de uma vez. Retorna {itad_id: [deals]}."""
+    if not itad_ids or not ITAD_KEY:
+        return {}
+    try:
+        r = httpx.post(
+            f"{ITAD_BASE}/games/prices/v3",
+            params={"key": ITAD_KEY, "country": country},
+            json=itad_ids,
+            headers={"Content-Type": "application/json",
+                     "User-Agent": "GamePriceBrasil/1.0"},
+            timeout=30,
+        )
+        r.raise_for_status()
+        return {item["id"]: item.get("deals", []) for item in r.json()}
+    except Exception as e:
+        print(f"  [itad] lote erro: {e}")
+        return {}
+
+
+def processar_itad(sb, rows_buffer: list, offer_map: dict) -> int:
+    """Processa um lote de ofertas ITAD e insere preços no banco.
+    Retorna quantidade de preços gravados.
+    """
+    if not rows_buffer:
+        return 0
+
+    # Extrai ITAD IDs únicos do lote
+    itad_ids = list({ext.split("|")[2] for ext in rows_buffer
+                     if ext.startswith("ITAD|")})
+    if not itad_ids:
+        return 0
+
+    prices = itad_prices_lote(itad_ids)
+
+    # Tenta sem country se não retornou nada
+    if not any(prices.values()):
+        prices = itad_prices_lote(itad_ids, country=None)
+
+    rows_para_inserir = []
+    for ext_id in rows_buffer:
+        if not ext_id.startswith("ITAD|"):
+            continue
+        parts = ext_id.split("|", 2)
+        if len(parts) != 3:
+            continue
+        _, shop_slug, itad_id = parts
+
+        deals = prices.get(itad_id, [])
+        for d in deals:
+            shop_id_num = d.get("shop", {}).get("id")
+            deal_slug   = ITAD_SHOP_MAP.get(shop_id_num, "")
+            if deal_slug != shop_slug:
+                continue
+            amount  = float((d.get("price") or {}).get("amount", 0) or 0)
+            regular = float((d.get("regular") or {}).get("amount", 0) or 0)
+            cut     = int(d.get("cut", 0) or 0)
+            if amount <= 0:
+                continue
+            offer_id = offer_map.get(ext_id)
+            if not offer_id:
+                continue
+            rows_para_inserir.append({
+                "offer_id":        offer_id,
+                "price":           round(amount, 2),
+                "old_price":       round(regular, 2) if regular and regular != amount else None,
+                "discount_percent": cut,
+                "available":       True,
+            })
+            print(f"  OK  {shop_slug:<12} {ext_id[:40]:<40} "
+                  f"R${amount:.2f} ({cut}% off)")
+            break
+
+    if rows_para_inserir:
+        for start in range(0, len(rows_para_inserir), 20):
+            sb.table("prices").insert(rows_para_inserir[start:start+20]).execute()
+
+    return len(rows_para_inserir)
 
 
 def sync_epic_free_games(sb) -> None:
@@ -61,31 +130,58 @@ def run() -> None:
     )
     print(f"\n=== Preços: {len(offers)} ofertas ===")
 
-    rows, erros = [], []
-    for i, o in enumerate(offers, 1):
-        store_slug = (o.get("stores") or {}).get("slug", "")
-        fetcher    = FETCHERS.get(store_slug)
-        if fetcher is None:
-            continue
+    # Separar Steam (individual) de ITAD (lote)
+    steam_offers = []
+    itad_offers  = []  # (ext_id, offer_id, shop_slug)
 
-        result = fetcher(o["external_id"])
+    for o in offers:
+        slug = (o.get("stores") or {}).get("slug", "")
+        eid  = o["external_id"]
+        if slug == "steam":
+            steam_offers.append(o)
+        elif eid.startswith("ITAD|"):
+            itad_offers.append(o)
+        # ML, legado GOG numérico, etc. → ignorado por ora
+
+    # ── Steam: individual com rate limit ──────────────────────────────────────
+    print(f"\n--- Steam: {len(steam_offers)} ofertas ---")
+    steam_rows = []
+    for i, o in enumerate(steam_offers, 1):
+        result = fetch_steam(o["external_id"])
         if result:
-            rows.append({"offer_id": o["id"], **result})
-            print(f"  [{i}/{len(offers)}] OK  {store_slug:<12} "
-                  f"{str(o['external_id'])[:35]:<35} "
+            steam_rows.append({"offer_id": o["id"], **result})
+            print(f"  [{i}/{len(steam_offers)}] OK  steam "
+                  f"{o['external_id']:<15} "
                   f"R${result['price']:.2f} ({result.get('discount_percent',0)}% off)")
         else:
-            erros.append(f"{store_slug}:{str(o['external_id'])[:20]}")
-            print(f"  [{i}/{len(offers)}] --- {store_slug:<12} "
-                  f"{str(o['external_id'])[:35]} sem preço")
+            print(f"  [{i}/{len(steam_offers)}] --- steam {o['external_id']} sem preço")
+        time.sleep(2.0)
 
-        time.sleep(RATE_LIMITS.get(store_slug, 1.0))
+    if steam_rows:
+        for start in range(0, len(steam_rows), 20):
+            sb.table("prices").insert(steam_rows[start:start+20]).execute()
+    print(f"Steam: {len(steam_rows)} preços gravados")
 
-    if rows:
-        for start in range(0, len(rows), 20):
-            sb.table("prices").insert(rows[start:start+20]).execute()
+    # ── ITAD: em lote de 20 ───────────────────────────────────────────────────
+    print(f"\n--- ITAD (GOG + Humble): {len(itad_offers)} ofertas ---")
 
-    print(f"\nResumo: {len(rows)} preços gravados | {len(erros)} sem resposta")
+    # Monta mapa ext_id → offer_id
+    offer_map = {o["external_id"]: o["id"] for o in itad_offers}
+
+    total_itad = 0
+    lote_ext   = []
+
+    for i, o in enumerate(itad_offers, 1):
+        lote_ext.append(o["external_id"])
+
+        if len(lote_ext) >= 20 or i == len(itad_offers):
+            n = processar_itad(sb, lote_ext, offer_map)
+            total_itad += n
+            lote_ext    = []
+            time.sleep(0.5)
+
+    print(f"ITAD: {total_itad} preços gravados")
+    print(f"\nResumo total: {len(steam_rows) + total_itad} preços gravados")
 
 
 if __name__ == "__main__":

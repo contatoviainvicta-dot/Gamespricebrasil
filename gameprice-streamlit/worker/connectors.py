@@ -1,18 +1,9 @@
-"""Conectores de loja para o worker.
-
-Steam  : API pública de storefront. Operante.
-Epic   : API não-documentada (freeGamesPromotions + GraphQL). Operante.
-ML     : API pública. Bloqueada por política - aguardando afiliados.
-Amazon : Scaffold.
-"""
-import time
+"""Conectores de loja para o worker."""
 import httpx
-
 
 # ── Steam ─────────────────────────────────────────────────────────────────────
 
 def fetch_steam(appid: str, cc: str = "br", lang: str = "portuguese") -> dict | None:
-    """Retorna preço atual de um jogo na Steam pelo appid."""
     try:
         r = httpx.get(
             "https://store.steampowered.com/api/appdetails",
@@ -75,15 +66,17 @@ query searchStoreQuery(
         title
         productSlug
         urlSlug
+        catalogNs {
+          mappings(pageType: "productHome") {
+            pageSlug
+            pageType
+          }
+        }
         price(country: $country) {
           totalPrice {
             discountPrice
             originalPrice
             discount
-            fmtPrice(locale: "pt-BR") {
-              originalPrice
-              discountPrice
-            }
           }
         }
         keyImages {
@@ -97,17 +90,40 @@ query searchStoreQuery(
 """
 
 
-def fetch_epic_free_games() -> dict:
-    """Retorna jogos gratuitos AGORA e PRÓXIMA SEMANA na Epic.
+def _epic_store_url(el: dict) -> str:
+    """Monta a URL correta da Epic a partir do elemento da API.
 
-    Retorno:
-        {
-            "current": [{"title": ..., "slug": ..., "image_url": ...,
-                         "end_date": ..., "store_url": ...}],
-            "next":    [{"title": ..., "slug": ..., "image_url": ...,
-                         "start_date": ...}],
-        }
+    A Epic tem três campos de slug diferentes — tenta na ordem
+    de confiabilidade até encontrar um válido.
     """
+    # 1. catalogNs.mappings → pageSlug (mais confiável)
+    mappings = (
+        el.get("catalogNs", {})
+          .get("mappings", []) or []
+    )
+    for m in mappings:
+        if m.get("pageType") == "productHome" and m.get("pageSlug"):
+            return f"https://store.epicgames.com/pt-BR/p/{m['pageSlug']}"
+
+    # 2. productSlug
+    slug = el.get("productSlug", "")
+    if slug and slug != "[]":
+        # Remove sufixo /home se existir
+        slug = slug.replace("/home", "").strip("/")
+        if slug:
+            return f"https://store.epicgames.com/pt-BR/p/{slug}"
+
+    # 3. urlSlug
+    slug = el.get("urlSlug", "")
+    if slug:
+        return f"https://store.epicgames.com/pt-BR/p/{slug}"
+
+    # 4. Fallback: página de jogos gratuitos
+    return "https://store.epicgames.com/pt-BR/free-games"
+
+
+def fetch_epic_free_games() -> dict:
+    """Retorna jogos gratuitos AGORA e PRÓXIMA SEMANA na Epic."""
     result = {"current": [], "next": []}
     try:
         r = httpx.get(
@@ -115,7 +131,7 @@ def fetch_epic_free_games() -> dict:
             timeout=20,
             headers={
                 "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
-                "Accept": "application/json",
+                "Accept":     "application/json",
             },
             follow_redirects=True,
         )
@@ -127,11 +143,10 @@ def fetch_epic_free_games() -> dict:
 
     for el in elements:
         title  = el.get("title", "")
-        slug   = el.get("productSlug") or el.get("urlSlug") or ""
         promos = el.get("promotions") or {}
         imgs   = el.get("keyImages", [])
 
-        # Pega a melhor imagem disponível
+        # Melhor imagem disponível
         image_url = ""
         for tipo in ["Thumbnail", "DieselStoreFrontWide", "OfferImageWide", "VaultOpened"]:
             img = next((i["url"] for i in imgs if i.get("type") == tipo), None)
@@ -139,31 +154,25 @@ def fetch_epic_free_games() -> dict:
                 image_url = img
                 break
 
-        store_url = f"https://store.epicgames.com/pt-BR/p/{slug}"
+        store_url = _epic_store_url(el)
 
         # Gratuito AGORA
-        offers_now = promos.get("promotionalOffers", [])
-        for offer_group in offers_now:
+        for offer_group in promos.get("promotionalOffers", []):
             for offer in offer_group.get("promotionalOffers", []):
-                disc = offer.get("discountSetting", {})
-                if disc.get("discountPercentage", -1) == 0:
+                if offer.get("discountSetting", {}).get("discountPercentage", -1) == 0:
                     result["current"].append({
                         "title":     title,
-                        "slug":      slug,
                         "image_url": image_url,
                         "end_date":  offer.get("endDate", ""),
                         "store_url": store_url,
                     })
 
         # Gratuito NA PRÓXIMA SEMANA
-        offers_next = promos.get("upcomingPromotionalOffers", [])
-        for offer_group in offers_next:
+        for offer_group in promos.get("upcomingPromotionalOffers", []):
             for offer in offer_group.get("promotionalOffers", []):
-                disc = offer.get("discountSetting", {})
-                if disc.get("discountPercentage", -1) == 0:
+                if offer.get("discountSetting", {}).get("discountPercentage", -1) == 0:
                     result["next"].append({
                         "title":      title,
-                        "slug":       slug,
                         "image_url":  image_url,
                         "start_date": offer.get("startDate", ""),
                         "store_url":  store_url,
@@ -172,14 +181,11 @@ def fetch_epic_free_games() -> dict:
     return result
 
 
-def fetch_epic_price(slug: str) -> dict | None:
-    """Busca preço de um jogo na Epic pelo slug do produto.
-
-    external_id formato: EPIC|slug-do-jogo
-    ex: EPIC|cyberpunk-2077
-    """
-    if not slug:
+def fetch_epic(external_id: str) -> dict | None:
+    """Busca preço de um jogo na Epic pelo slug. external_id = EPIC|slug"""
+    if not external_id.startswith("EPIC|"):
         return None
+    slug = external_id.split("|", 1)[1]
 
     try:
         r = httpx.post(
@@ -214,14 +220,13 @@ def fetch_epic_price(slug: str) -> dict | None:
     if not elements:
         return None
 
-    # Pega o primeiro resultado (mais relevante)
-    el    = elements[0]
-    tp    = el.get("price", {}).get("totalPrice", {})
-    disc  = tp.get("discountPrice", 0)
-    orig  = tp.get("originalPrice", 0)
+    el   = elements[0]
+    tp   = el.get("price", {}).get("totalPrice", {})
+    disc = tp.get("discountPrice", 0)
+    orig = tp.get("originalPrice", 0)
 
     if orig == 0 and disc == 0:
-        return None  # Jogo sem preço listado
+        return None
 
     discount_pct = int(((orig - disc) / orig) * 100) if orig > 0 else 0
 
@@ -233,37 +238,13 @@ def fetch_epic_price(slug: str) -> dict | None:
     }
 
 
-def fetch_epic(external_id: str) -> dict | None:
-    """Dispatcher para ofertas da Epic.
-
-    external_id formato: EPIC|slug
-    """
-    if not external_id.startswith("EPIC|"):
-        return None
-    slug = external_id.split("|", 1)[1]
-    return fetch_epic_price(slug)
-
-
-# ── Mercado Livre (bloqueado por política - aguardando aprovação de afiliados) ─
-
-ML_CATEGORIAS = {
-    "PS5":    "MLB1132",
-    "PS4":    "MLB1133",
-    "XBOX":   "MLB1069",
-    "SWITCH": "MLB1131",
-    "PC":     "MLB1144",
-}
-
+# ── Mercado Livre (bloqueado por política — aguardando afiliados) ─────────────
 
 def fetch_mercadolivre(external_id: str) -> dict | None:
-    """API pública do ML — retorna 403 de IPs de datacenter.
-    Aguardando aprovação no programa de afiliados para usar feed oficial.
-    """
     return None
 
 
 # ── Amazon (scaffold) ─────────────────────────────────────────────────────────
 
 def fetch_amazon(external_id: str) -> dict | None:
-    """Scaffold: precisa de conta Amazon Associates + PA-API 5.0."""
     return None

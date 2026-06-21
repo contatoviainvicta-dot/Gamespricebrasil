@@ -181,10 +181,11 @@ def maiores_quedas_de_preco() -> list[dict]:
 
 @st.cache_data(ttl=600)
 def precos_por_loja() -> list[dict]:
-    """Quantidade de ofertas ativas por loja."""
+    """Quantidade de ofertas ATIVAS com preço coletado por loja."""
     lojas = sb.table("stores").select("id,name,slug").eq("active", True).execute().data
     result = []
     for loja in lojas:
+        # Conta só ofertas ativas
         count = len(
             sb.table("game_store_offers")
             .select("id")
@@ -589,12 +590,19 @@ else:
                 pct   = q.get("discount_percent", 0)
                 preco = float(q.get("price") or 0)
                 op    = float(q.get("old_price") or preco)
+                # Usa HTML puro para evitar conflito de markdown
                 st.markdown(
-                    f"**{q.get('title','?')}** · {q.get('store','')}"
-                    f"  \n~~{fmt_preco(op)}~~ → **{fmt_preco(preco)}** "
-                    f"<span style='color:#e94560;font-weight:700'>-{pct}%</span>",
+                    f"<b>{q.get('title','?')}</b> · "
+                    f"<span style='color:#888'>{q.get('store','')}</span><br>"
+                    f"<span style='text-decoration:line-through;color:#aaa'>"
+                    f"{fmt_preco(op)}</span> → "
+                    f"<b style='color:#e94560'>{fmt_preco(preco)}</b> "
+                    f"<span style='background:#e94560;color:white;font-size:0.75rem;"
+                    f"font-weight:700;padding:1px 6px;border-radius:4px'>-{pct}%</span>",
                     unsafe_allow_html=True,
                 )
+                st.markdown("<hr style='margin:4px 0;border-color:#eee'>",
+                            unsafe_allow_html=True)
         else:
             st.info("Sem dados de quedas de preço ainda.")
 

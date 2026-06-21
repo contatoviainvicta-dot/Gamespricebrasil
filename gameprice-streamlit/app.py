@@ -1,86 +1,45 @@
-"""GamePrice Brasil - comparador de preços estilo ITAD."""
+"""GamePrice Brasil — comparador de preços estilo ITAD."""
 import pandas as pd
 import streamlit as st
 from datetime import datetime
 from supabase import Client, create_client
 
-st.set_page_config(
-    page_title="GamePrice Brasil",
-    page_icon="🎮",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+st.set_page_config(page_title="GamePrice Brasil", page_icon="🎮",
+                   layout="wide", initial_sidebar_state="expanded")
 
-st.markdown("""
-<style>
-/* Sidebar */
+st.markdown("""<style>
 [data-testid="stSidebar"] { background:#1b2838 !important; }
 [data-testid="stSidebar"] * { color:#c6d4df !important; }
-[data-testid="stSidebar"] h1,h2,h3 { color:#fff !important; }
-[data-testid="stSidebar"] .stSelectbox label,
-[data-testid="stSidebar"] .stSlider label { color:#8fa3b1 !important; font-size:.8rem !important; }
-
-/* Card de deal */
-.deal {
-    display:flex; gap:12px; align-items:center;
-    background:#fff; border:1px solid #dde3e8;
-    border-radius:6px; padding:10px 14px;
-    margin-bottom:5px; transition:border .15s;
-}
+[data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2 { color:#fff !important; }
+.deal { display:flex;gap:12px;align-items:center;background:#fff;
+        border:1px solid #dde3e8;border-radius:6px;padding:8px 12px;margin-bottom:4px; }
 .deal:hover { border-color:#a0b4c0; }
-.deal img { width:80px; height:45px; object-fit:cover; border-radius:4px; flex-shrink:0; }
-.deal-body { flex:1; min-width:0; }
-.deal-name { font-weight:600; font-size:.88rem; color:#1b2838;
-             white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.deal-sub { font-size:.72rem; color:#90a4b0; margin-top:2px;
-            display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
-.deal-right { text-align:right; flex-shrink:0; }
-.deal-price { font-size:1rem; font-weight:700; color:#3a8a3a; }
-.deal-orig  { font-size:.75rem; color:#b0bec5; text-decoration:line-through; }
+.deal img { width:100px;height:56px;object-fit:cover;border-radius:4px;flex-shrink:0; }
+.dn { font-weight:600;font-size:.88rem;color:#1b2838;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.ds { font-size:.72rem;color:#90a4b0;margin-top:3px;display:flex;gap:6px;align-items:center; }
+.dr { text-align:right;flex-shrink:0; }
+.rt { width:100%;border-collapse:collapse;font-size:.83rem; }
+.rt th { background:#f5f7f9;padding:5px 10px;text-align:left;
+         color:#78909c;font-size:.73rem;border-bottom:1px solid #e0e7ec; }
+.rt td { padding:6px 10px;border-bottom:1px solid #f0f4f7; }
+.sh { font-size:.95rem;font-weight:700;color:#1b2838;
+      border-left:3px solid #3a8a3a;padding-left:8px;margin:12px 0 8px; }
+</style>""", unsafe_allow_html=True)
 
-/* Badges */
-.b { display:inline-block; font-size:.65rem; font-weight:700;
-     padding:1px 5px; border-radius:3px; }
-.b-green { background:#3a8a3a; color:#fff; }
-.b-blue  { background:#1565c0; color:#fff; }
-.b-amber { background:#e65100; color:#fff; }
-
-/* Loja pill */
-.loja { display:inline-block; font-size:.7rem; padding:1px 6px;
-        border-radius:3px; background:#f0f4f7; color:#546e7a;
-        border-left:3px solid #90a4b0; }
-
-/* Section header */
-.sh { font-size:.95rem; font-weight:700; color:#1b2838;
-      border-left:3px solid #3a8a3a; padding-left:8px; margin:12px 0 8px; }
-
-/* Ranking table */
-.rt { width:100%; border-collapse:collapse; font-size:.83rem; margin-top:6px; }
-.rt th { background:#f5f7f9; padding:5px 10px; text-align:left;
-         color:#78909c; font-size:.73rem; border-bottom:1px solid #e0e7ec; }
-.rt td { padding:6px 10px; border-bottom:1px solid #f0f4f7; }
-.rt tr:hover td { background:#f9fbfd; }
-
-/* Epic banner */
-.epic-card { background:#16202d; border-radius:8px; padding:0;
-             overflow:hidden; margin-bottom:4px; }
-.epic-card img { width:100%; height:120px; object-fit:cover; display:block; }
-.epic-info { padding:8px 10px; }
-.epic-title { font-size:.82rem; font-weight:600; color:#e8eef2; margin-bottom:4px; }
-</style>
-""", unsafe_allow_html=True)
-
-PLAT   = ["Todas","PC","PS4","PS5","XBOX","SWITCH"]
-LOJAS  = ["Todas","Steam","GOG","Humble Store","Epic Games","Nuuvem","Fanatical"]
-MED    = {0:"🥇",1:"🥈",2:"🥉"}
-CORES  = {"Steam":"#1b2838","GOG":"#8a2be2","Humble Store":"#c62828",
-          "Epic Games":"#37474f","Nuuvem":"#1565c0","Fanatical":"#bf360c"}
+PLAT  = ["Todas","PC","PS4","PS5","XBOX","SWITCH"]
+LOJAS = ["Todas","Steam","GOG","Humble Store","Epic Games","Nuuvem","Fanatical"]
+MED   = {0:"🥇",1:"🥈",2:"🥉"}
+CORES = {"Steam":"#1b2838","GOG":"#8a2be2","Humble Store":"#c62828",
+         "Epic Games":"#37474f","Nuuvem":"#1565c0","Fanatical":"#bf360c"}
+LOJA_DOTS = {"Steam":"#4caf50","GOG":"#ff9800","Humble Store":"#f44336",
+             "Epic Games":"#9c27b0","Nuuvem":"#2196f3","Fanatical":"#ff5722"}
 
 @st.cache_resource
-def sb():
+def SB():
     c = st.secrets["supabase"]
-    return create_client(c["url"],c["anon_key"])
-SB = sb()
+    return create_client(c["url"], c["anon_key"])
+DB = SB()
 
 def R(v):
     if v is None: return "—"
@@ -91,11 +50,11 @@ def DT(iso):
     except: return iso[:10]
 
 @st.cache_data(ttl=300)
-def n_jogos(): return len(SB.table("games").select("id").execute().data)
+def n_jogos(): return len(DB.table("games").select("id").execute().data)
 
 @st.cache_data(ttl=300)
-def deals(loja="Todas",plat="Todas",disc=0,lim=50):
-    q = (SB.table("v_game_offers")
+def get_deals(loja="Todas",plat="Todas",disc=0,lim=50):
+    q = (DB.table("v_game_offers")
          .select("game_id,title,platform,cover_url,store,price,old_price,discount_percent")
          .gt("discount_percent",disc).order("discount_percent",desc=True).limit(lim))
     if plat!="Todas": q=q.eq("platform",plat)
@@ -104,362 +63,247 @@ def deals(loja="Todas",plat="Todas",disc=0,lim=50):
 
 @st.cache_data(ttl=300)
 def buscar(t,p="Todas"):
-    q=SB.table("games").select("id,title,slug,platform,cover_url")
+    q=DB.table("games").select("id,title,slug,platform,cover_url")
     if t: q=q.ilike("title",f"%{t}%")
     if p!="Todas": q=q.eq("platform",p)
     return q.order("title").limit(100).execute().data
 
 @st.cache_data(ttl=300)
-def ofertas(gid):
-    return SB.table("v_game_offers").select("*").eq("game_id",gid).execute().data
+def get_ofertas(gid):
+    return DB.table("v_game_offers").select("*").eq("game_id",gid).execute().data
 
 @st.cache_data(ttl=300)
-def hist(oids):
+def get_hist(oids):
     if not oids: return []
-    return SB.table("prices").select("offer_id,price,captured_at").in_("offer_id",oids).order("captured_at").execute().data
+    return (DB.table("prices").select("offer_id,price,captured_at")
+            .in_("offer_id",oids).order("captured_at").execute().data)
 
 @st.cache_data(ttl=300)
-def hmin(oids):
+def get_hmin(oids):
     if not oids: return None
-    r=SB.table("prices").select("price").in_("offer_id",oids).gt("price",0).execute().data
+    r=DB.table("prices").select("price").in_("offer_id",oids).gt("price",0).execute().data
     return min(float(x["price"]) for x in r) if r else None
 
 @st.cache_data(ttl=1800)
-def epic():
+def get_epic():
     try:
-        r=SB.table("epic_free_games").select("current,next,updated_at").eq("id",1).execute().data
+        r=DB.table("epic_free_games").select("current,next,updated_at").eq("id",1).execute().data
         return r[0] if r else {}
     except: return {}
 
 @st.cache_data(ttl=600)
-def stats():
-    tp=len(SB.table("prices").select("id").execute().data)
-    ls=SB.table("stores").select("id,name").eq("active",True).execute().data
+def get_stats():
+    tp=len(DB.table("prices").select("id").execute().data)
+    ls=DB.table("stores").select("id,name").eq("active",True).execute().data
     cont=[]
     for l in ls:
-        c=len(SB.table("game_store_offers").select("id").eq("store_id",l["id"]).eq("active",True).execute().data)
+        c=len(DB.table("game_store_offers").select("id").eq("store_id",l["id"]).eq("active",True).execute().data)
         if c>0: cont.append({"loja":l["name"],"ofertas":c})
     return {"jogos":n_jogos(),"precos":tp,"lojas":sorted(cont,key=lambda x:x["ofertas"],reverse=True)}
 
-# ── SIDEBAR ───────────────────────────────────────────────────────────────────
-LOJA_DOTS = {
-    "Steam":       "#4caf50",
-    "GOG":         "#ff9800",
-    "Humble Store":"#f44336",
-    "Epic Games":  "#9c27b0",
-    "Nuuvem":      "#2196f3",
-    "Fanatical":   "#ff5722",
-}
-
-with st.sidebar:
-    st.markdown("""
-    <div style="font-size:1.1rem;font-weight:700;color:#fff;padding:8px 0 4px">
-    🎮 GamePrice Brasil
-    </div>""", unsafe_allow_html=True)
-
-    pag = st.radio("p",["🏠 Deals","🔍 Buscar","📚 Catálogo","📊 Stats"],
-                   label_visibility="collapsed")
-    st.markdown("---")
-
-    # Shop
-    st.markdown('<div style="font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">🏪 Shop</div>', unsafe_allow_html=True)
-    lojas_disponiveis = ["Steam","GOG","Humble Store","Epic Games","Nuuvem","Fanatical"]
-    dots_html = ""
-    for l in lojas_disponiveis:
-        cor = LOJA_DOTS.get(l,"#888")
-        dots_html += f'<div style="padding:3px 0;font-size:.82rem;cursor:pointer">'                     f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;'                     f'background:{cor};margin-right:7px;vertical-align:middle"></span>{l}</div>'
-    st.markdown(dots_html, unsafe_allow_html=True)
-    fl = st.selectbox("",["Todas"]+lojas_disponiveis,key="fl",label_visibility="collapsed")
-    st.markdown("---")
-
-    # Price
-    st.markdown('<div style="font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">💰 Price</div>', unsafe_allow_html=True)
-    fm = st.radio("pm",["Qualquer","Até R$ 5","Até R$ 25","Até R$ 50","Até R$ 100","Até R$ 150"],
-                  key="fm", label_visibility="collapsed")
-    st.markdown("---")
-
-    # Price Cut
-    st.markdown('<div style="font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">🏷️ Price Cut</div>', unsafe_allow_html=True)
-    fd = st.radio("pc",["Qualquer","25% ou mais","50% ou mais","75% ou mais","90% ou mais"],
-                  key="fd", label_visibility="collapsed")
-    st.markdown("---")
-
-    # Plataforma
-    st.markdown('<div style="font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">🎮 Plataforma</div>', unsafe_allow_html=True)
-    fp = st.radio("pp",PLAT,key="fp",label_visibility="collapsed")
-    st.markdown("---")
-
-    # Epic free
-    ep=epic(); cf=ep.get("current",[])
-    if cf:
-        st.markdown('<div style="font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">🎁 Grátis na Epic</div>', unsafe_allow_html=True)
-        for g in cf:
-            st.markdown(f'<div style="font-size:.8rem;color:#c6d4df;padding:2px 0">• {g["title"]}</div>', unsafe_allow_html=True)
-            if g.get("end_date"): st.caption(f"até {DT(g['end_date'])}")
-        st.link_button("Ver na Epic →","https://store.epicgames.com/pt-BR/free-games",use_container_width=True)
-        st.markdown("---")
-
-    st.caption(f"📊 {n_jogos()} jogos · Steam · GOG · Humble")
-
-# ── COMPONENTES ───────────────────────────────────────────────────────────────
 @st.cache_data(ttl=600)
-def get_price_history(game_id: str) -> list[dict]:
-    """Busca histórico de preços de todas as ofertas de um jogo."""
+def get_price_history(game_id):
     try:
-        offer_ids = [o["offer_id"] for o in
-                     SB.table("v_game_offers").select("offer_id")
-                     .eq("game_id", game_id).execute().data]
-        if not offer_ids:
-            return []
-        rows = (SB.table("prices")
-                .select("price,captured_at,offer_id")
-                .in_("offer_id", offer_ids)
-                .gt("price", 0)
-                .order("captured_at")
-                .execute().data)
-        return rows
-    except Exception:
-        return []
+        oids=[o["offer_id"] for o in DB.table("v_game_offers").select("offer_id").eq("game_id",game_id).execute().data]
+        if not oids: return []
+        return DB.table("prices").select("price,captured_at").in_("offer_id",oids).gt("price",0).order("captured_at").execute().data
+    except: return []
 
-
-def render_price_bars(hist_data: list[dict], preco_atual):
-    """Grafico de barras verticais estilo ITAD."""
-    import pandas as pd
-    df = pd.DataFrame(hist_data)
-    df["captured_at"] = pd.to_datetime(df["captured_at"], utc=True)
-    df["price"] = df["price"].astype(float)
-    df["dia"] = df["captured_at"].dt.date
-    df_day = df.groupby("dia")["price"].min().reset_index().tail(90)
-    if df_day.empty or len(df_day) < 2:
-        # Fallback: line chart nativo
-        st.line_chart(df_day.set_index('dia')['price'] if not df_day.empty else {})
-        return
-    preco_max = df_day['price'].max()
-    preco_min = df_day['price'].min()
-    preco_at  = float(preco_atual or preco_min)
-    n = len(df_day)
-    # Largura total fixa: 600px, distribuída entre as barras
-    tot_w = 600
-    bar_w = max(2, (tot_w - n) // n)  # largura de cada barra
-    gap   = 1
-    h     = 60
-    real_w = n * (bar_w + gap)
-    bars = ''
-    for idx, (_, row) in enumerate(df_day.iterrows()):
-        p   = row['price']
-        pct = (p - preco_min) / (preco_max - preco_min + .01)
-        bh  = max(3, int(h * 0.15 + h * 0.85 * (1 - pct)))
-        by  = h - bh
-        x   = idx * (bar_w + gap)
-        if p <= preco_min * 1.05:  cor = '#43a047'
-        elif p <= preco_min * 1.5: cor = '#fb8c00'
-        else:                       cor = '#e53935'
-        bars += "<rect x='" + str(x) + "' y='" + str(by) + "' width='" + str(bar_w) + "' height='" + str(bh) + "' fill='" + cor + "' rx='1'/>"
-    d0 = str(df_day['dia'].iloc[0])
-    d1 = str(df_day['dia'].iloc[-1])
-    mn_s = 'R$ ' + str(round(preco_min, 2))
-    mx_s = 'R$ ' + str(round(preco_max, 2))
-    mid  = str(real_w // 2)
-    svg = (
-        '<svg viewBox="0 0 ' + str(real_w) + ' ' + str(h + 22) + '"'
-        ' xmlns="http://www.w3.org/2000/svg" style="width:100%;height:90px">'
-        '<rect width="' + str(real_w) + '" height="' + str(h) + '" fill="#f0f4f7" rx="4"/>'
-        + bars +
-        '<text x="2" y="' + str(h+13) + '" font-size="8" fill="#90a4b0">' + d0 + '</text>'
-        '<text x="' + str(real_w-2) + '" y="' + str(h+13) + '" font-size="8" fill="#90a4b0" text-anchor="end">' + d1 + '</text>'
-        '<text x="' + mid + '" y="' + str(h+13) + '" font-size="8" fill="#37474f" text-anchor="middle">'
-        'Min: ' + mn_s + '   Max: ' + mx_s + '</text>'
-        '</svg>'
-    )
-    st.markdown(svg, unsafe_allow_html=True)
-    st.markdown(
-        '<div style="display:flex;gap:14px;font-size:.7rem;color:#607d8b;margin-top:2px">'
-        '<span><span style="color:#43a047">■</span> Mínimo</span>'
-        '<span><span style="color:#fb8c00">■</span> Médio</span>'
-        '<span><span style="color:#e53935">■</span> Alto</span>'
-        '</div>',
-        unsafe_allow_html=True
-    )
 @st.cache_data(ttl=3600)
-def get_steam_description(game_id: str) -> dict:
-    """Busca descrição do jogo na Steam via appid salvo no banco."""
+def get_desc(game_id):
     import httpx
     try:
-        # Busca o appid da oferta Steam
-        offer = SB.table("game_store_offers").select("external_id")                  .eq("game_id", game_id)                  .eq("store_id", SB.table("stores").select("id").eq("slug","steam").execute().data[0]["id"])                  .execute().data
-        if not offer:
-            return {}
-        appid = offer[0]["external_id"]
-        r = httpx.get(
-            "https://store.steampowered.com/api/appdetails",
-            params={"appids": appid, "cc": "br", "l": "portuguese",
-                    "filters": "basic,short_description,genres,release_date"},
-            timeout=10,
-            headers={"User-Agent": "Mozilla/5.0"},
-        )
+        store=DB.table("stores").select("id").eq("slug","steam").execute().data
+        if not store: return {}
+        offer=DB.table("game_store_offers").select("external_id").eq("game_id",game_id).eq("store_id",store[0]["id"]).execute().data
+        if not offer: return {}
+        appid=offer[0]["external_id"]
+        r=httpx.get("https://store.steampowered.com/api/appdetails",
+            params={"appids":appid,"cc":"br","l":"portuguese",
+                    "filters":"basic,short_description,genres,release_date,metacritic,recommendations"},
+            timeout=10,headers={"User-Agent":"Mozilla/5.0"})
         r.raise_for_status()
-        data = r.json().get(str(appid), {})
-        if not data.get("success"):
-            return {}
-        d = data.get("data", {})
+        data=r.json().get(str(appid),{})
+        if not data.get("success"): return {}
+        d=data.get("data",{})
+        rec=d.get("recommendations",{})
         return {
-            "short_description": d.get("short_description",""),
-            "header_image":      d.get("header_image",""),
-            "genres":            [g["description"] for g in d.get("genres",[])],
-            "release_date":      d.get("release_date",{}).get("date",""),
+            "short_description":d.get("short_description",""),
+            "header_image":d.get("header_image",""),
+            "genres":[g["description"] for g in d.get("genres",[])],
+            "release_date":d.get("release_date",{}).get("date",""),
+            "metacritic":d.get("metacritic",{}).get("score") if d.get("metacritic") else None,
+            "steam_reviews":rec.get("total",0) if isinstance(rec,dict) else 0,
         }
-    except Exception:
-        return {}
+    except: return {}
 
+def render_price_bars(hist_data, preco_atual):
+    df=pd.DataFrame(hist_data)
+    df["captured_at"]=pd.to_datetime(df["captured_at"],utc=True)
+    df["price"]=df["price"].astype(float)
+    df["dia"]=df["captured_at"].dt.date
+    df_day=df.groupby("dia")["price"].min().reset_index().tail(90)
+    if df_day.empty or len(df_day)<2:
+        st.caption("Poucos dados ainda — gráfico disponível em breve.")
+        return
+    pmax=df_day["price"].max(); pmin=df_day["price"].min()
+    n=len(df_day); bw=max(2,(600-n)//n); h=60; tw=n*(bw+1)
+    bars=""
+    for idx,(_,row) in enumerate(df_day.iterrows()):
+        p=row["price"]; bh=max(3,int(h*0.15+h*0.85*(1-(p-pmin)/(pmax-pmin+.01))))
+        by=h-bh; x=idx*(bw+1)
+        c="#43a047" if p<=pmin*1.05 else "#fb8c00" if p<=pmin*1.5 else "#e53935"
+        bars+="<rect x='"+str(x)+"' y='"+str(by)+"' width='"+str(bw)+"' height='"+str(bh)+"' fill='"+c+"' rx='1'/>"
+    d0=str(df_day["dia"].iloc[0]); d1=str(df_day["dia"].iloc[-1])
+    svg=("<svg viewBox='0 0 "+str(tw)+" "+str(h+20)+"' xmlns='http://www.w3.org/2000/svg' style='width:100%;height:85px'>"
+         "<rect width='"+str(tw)+"' height='"+str(h)+"' fill='#f0f4f7' rx='4'/>"+bars
+         +"<text x='2' y='"+str(h+13)+"' font-size='8' fill='#90a4b0'>"+d0+"</text>"
+         "<text x='"+str(tw-2)+"' y='"+str(h+13)+"' font-size='8' fill='#90a4b0' text-anchor='end'>"+d1+"</text>"
+         "<text x='"+str(tw//2)+"' y='"+str(h+13)+"' font-size='8' fill='#37474f' text-anchor='middle'>"
+         "Min: R$ "+str(round(pmin,2))+"  Max: R$ "+str(round(pmax,2))+"</text></svg>")
+    st.markdown(svg,unsafe_allow_html=True)
+    st.markdown("<div style='display:flex;gap:12px;font-size:.7rem;color:#607d8b'>"
+                "<span><span style='color:#43a047'>■</span> Mínimo</span>"
+                "<span><span style='color:#fb8c00'>■</span> Médio</span>"
+                "<span><span style='color:#e53935'>■</span> Alto</span></div>",
+                unsafe_allow_html=True)
 
-def flag_html(pr, op, pc):
-    """Gera badges N/H/S conforme histórico."""
-    # Por ora usa o desconto como heurística
-    # N = novo mínimo (>= 90% off), H = mínimo histórico (>= 75%), S = menor loja (>= 50%)
-    flags = ""
-    if pc >= 90:
-        flags += '<span style="background:#c62828;color:#fff;font-size:.6rem;font-weight:700;padding:1px 3px;border-radius:2px;margin-right:2px">N</span>'
-    elif pc >= 75:
-        flags += '<span style="background:#e65100;color:#fff;font-size:.6rem;font-weight:700;padding:1px 3px;border-radius:2px;margin-right:2px">H</span>'
-    elif pc >= 50:
-        flags += '<span style="background:#1565c0;color:#fff;font-size:.6rem;font-weight:700;padding:1px 3px;border-radius:2px;margin-right:2px">S</span>'
-    return flags
+def painel_expandido(j):
+    """Painel expansível com descrição, gráfico e preços por loja."""
+    desc=get_desc(j["game_id"])
+    hist=get_price_history(j["game_id"])
+    ofs=sorted([o for o in get_ofertas(j["game_id"]) if o.get("price") is not None],
+               key=lambda o:float(o["price"]))
 
-def card(j,i):
-    pr = float(j.get("price") or 0)
-    op = float(j.get("old_price") or 0)
-    pc = j.get("discount_percent") or 0
-    st_ = j.get("store","")
-    cor = CORES.get(st_,"#90a4b0")
-    img = j.get("cover_url","")
-    plat = j.get("platform","PC")
+    pa,pb=st.columns([1,2])
+    with pa:
+        if desc.get("header_image"): st.image(desc["header_image"],use_container_width=True)
+        if desc.get("genres"): st.caption("🏷 "+" · ".join(desc["genres"]))
+        if desc.get("release_date"): st.caption("📅 "+desc["release_date"])
+    with pb:
+        st.markdown("**"+j["title"]+"**")
+        if desc.get("short_description"): st.write(desc["short_description"])
+        mc=desc.get("metacritic"); sr=desc.get("steam_reviews",0)
+        if mc:
+            cm="#43a047" if int(mc)>=75 else "#fb8c00" if int(mc)>=50 else "#e53935"
+            st.markdown("<div style='display:flex;align-items:center;gap:8px;margin:4px 0'>"
+                        "<div style='flex:1;background:#e0e0e0;border-radius:3px;height:6px'>"
+                        "<div style='width:"+str(mc)+"%;background:"+cm+";height:6px;border-radius:3px'></div>"
+                        "</div><span style='font-size:.75rem;color:#546e7a'>Metacritic "+str(mc)+"</span></div>",
+                        unsafe_allow_html=True)
+        if sr>0: st.caption("💬 "+"{:,}".format(sr)+" avaliações na Steam")
 
-    # Badge de desconto
-    if pr == 0:
-        disc_badge = '<span style="background:#1a1a1a;color:#fff;font-size:.75rem;font-weight:700;padding:2px 7px;border-radius:4px;border:1px solid #444">-100%</span>'
-        pr_color = "#ef5350"
-    elif pc > 0:
-        disc_badge = f'<span style="background:#1a1a1a;color:#fff;font-size:.75rem;font-weight:700;padding:2px 7px;border-radius:4px;border:1px solid #444">-{pc}%</span>'
-        pr_color = "#ef5350" if pc >= 75 else "#ff9800" if pc >= 50 else "#66bb6a"
-    else:
-        disc_badge = ""
-        pr_color = "#4caf50"
+    if hist:
+        st.markdown("**📊 Histórico de preços (últimos 90 dias)**")
+        render_price_bars(hist,j.get("price"))
 
-    flags = flag_html(pr, op, pc)
-    pr_str = "R$ 0,00" if pr == 0 else f"R$ {pr:.2f}"
-    op_str = f"R$ {op:.2f}" if op > pr > 0 else ""
-
-    # Ponto colorido da loja
-    dot = f'<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:{cor};margin-right:4px;vertical-align:middle"></span>'
-
-    img_html = (f'<img src="{img}" style="width:100px;height:56px;object-fit:cover;border-radius:4px;flex-shrink:0">' 
-                if img else '<div style="width:100px;height:56px;background:#2a3f5a;border-radius:4px;flex-shrink:0"></div>')
-
-    st.markdown(f"""
-<div style="display:flex;gap:12px;align-items:center;
-            background:#fff;border:1px solid #dde3e8;border-radius:6px;
-            padding:8px 12px;margin-bottom:4px">
-  {img_html}
-  <div style="flex:1;min-width:0">
-    <div style="font-weight:600;font-size:.88rem;color:#1b2838;
-                white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{j["title"]}</div>
-    <div style="font-size:.72rem;color:#90a4b0;margin-top:3px;display:flex;gap:5px;align-items:center">
-      <span style="color:#78909c">{plat}</span>
-      <span>{dot}{st_}</span>
-    </div>
-  </div>
-  <div style="text-align:right;flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:3px">
-    <div style="display:flex;gap:4px;align-items:center">
-      {disc_badge} {flags}
-      <span style="font-size:1rem;font-weight:700;color:{pr_color}">{pr_str}</span>
-    </div>
-    <div style="font-size:.75rem;color:#b0bec5">
-      {st_} {'· ' + op_str if op_str else ''}
-    </div>
-  </div>
-</div>""", unsafe_allow_html=True)
-
-    # Linha de ações: Ver detalhes + Expandir
-    col_det, col_exp = st.columns([5, 1])
-    with col_det:
-        if st.button("Ver detalhes", key=f"c{j['game_id']}{i}", use_container_width=True):
+    if ofs:
+        st.markdown("**🏪 Preços por loja**")
+        for o in ofs:
+            pr=float(o["price"]); op2=float(o.get("old_price") or pr)
+            pc2=o.get("discount_percent") or 0; st_=o["store"]
+            cor=CORES.get(st_,"#90a4b0")
+            prc="#ef5350" if pc2>=50 else "#fb8c00" if pc2>0 else "#37474f"
+            disc=("-"+str(pc2)+"% ") if pc2>0 else ""
+            low=("store low: R$ "+str(round(min(pr,op2),2))) if op2>pr else ""
+            st.markdown("<div style='display:flex;align-items:center;justify-content:space-between;"
+                        "padding:5px 0;border-bottom:1px solid #eee;font-size:.82rem'>"
+                        "<span><span style='display:inline-block;width:7px;height:7px;border-radius:50%;"
+                        "background:"+cor+";margin-right:5px;vertical-align:middle'></span><b>"+st_+"</b></span>"
+                        "<span style='color:#90a4b0;font-size:.72rem'>"+low+"</span>"
+                        "<span style='color:"+prc+";font-weight:700'>"+disc+"R$ "+str(round(pr,2))+"</span></div>",
+                        unsafe_allow_html=True)
+        st.markdown("")
+        if st.button("🔗 Ver página completa",key="more_"+j["game_id"],
+                     use_container_width=True,type="primary"):
             st.session_state.update({"jogo_id":j["game_id"],"goto":"🔍 Buscar"}); st.rerun()
-    with col_exp:
-        if st.button("⌄", key=f"exp{j['game_id']}{i}", use_container_width=True,
-                     help="Expandir"):
-            key = f"open_{j['game_id']}"
-            st.session_state[key] = not st.session_state.get(key, False)
 
-    # Painel expandido
-    if st.session_state.get(f"open_{j['game_id']}"):
-        with st.container():
-            desc_data  = get_steam_description(j["game_id"])
-            hist_data  = get_price_history(j["game_id"])
-
-            # Linha 1: imagem + descrição + scores por loja
-            ec1, ec2 = st.columns([1, 2])
-            with ec1:
-                if desc_data.get("header_image"):
-                    st.image(desc_data["header_image"], use_container_width=True)
-                if desc_data.get("genres"):
-                    st.caption("🏷 " + " · ".join(desc_data["genres"]))
-                if desc_data.get("release_date"):
-                    st.caption(f"📅 {desc_data['release_date']}")
-            with ec2:
-                st.markdown(f"### {j['title']}")
-                if desc_data.get("short_description"):
-                    st.write(desc_data["short_description"])
-
-            # Linha 2: gráfico de histórico de preços (barras verticais estilo ITAD)
-            if hist_data:
-                st.markdown("**📊 Histórico de preços (últimos 90 dias)**")
-                render_price_bars(hist_data, j.get("price"))
-
-            st.markdown("---")
+def deal_card(j,i):
+    pr=float(j.get("price") or 0); op=float(j.get("old_price") or 0)
+    pc=j.get("discount_percent") or 0; st_=j.get("store","")
+    cor=CORES.get(st_,"#90a4b0"); img=j.get("cover_url","")
+    if pr==0: db="<span style='background:#1a1a1a;color:#fff;font-size:.72rem;font-weight:700;padding:2px 6px;border-radius:3px'>-100%</span>"; prc="#ef5350"
+    elif pc>=90: db="<span style='background:#1a1a1a;color:#fff;font-size:.72rem;font-weight:700;padding:2px 6px;border-radius:3px'>-"+str(pc)+"%</span>"; prc="#ef5350"
+    elif pc>0: db="<span style='background:#1a1a1a;color:#fff;font-size:.72rem;font-weight:700;padding:2px 6px;border-radius:3px'>-"+str(pc)+"%</span>"; prc="#fb8c00"
+    else: db=""; prc="#37474f"
+    flag=""
+    if pc>=90: flag="<span style='background:#c62828;color:#fff;font-size:.6rem;font-weight:700;padding:1px 3px;border-radius:2px;margin-left:2px'>N</span>"
+    elif pc>=75: flag="<span style='background:#e65100;color:#fff;font-size:.6rem;font-weight:700;padding:1px 3px;border-radius:2px;margin-left:2px'>H</span>"
+    elif pc>=50: flag="<span style='background:#1565c0;color:#fff;font-size:.6rem;font-weight:700;padding:1px 3px;border-radius:2px;margin-left:2px'>S</span>"
+    pr_s="R$ 0,00" if pr==0 else "R$ "+str(round(pr,2))
+    op_s="R$ "+str(round(op,2)) if op>pr>0 else ""
+    dot="<span style='display:inline-block;width:7px;height:7px;border-radius:50%;background:"+cor+";margin-right:4px;vertical-align:middle'></span>"
+    ih=(("<img src='"+img+"' style='width:100px;height:56px;object-fit:cover;border-radius:4px;flex-shrink:0'>") if img
+        else "<div style='width:100px;height:56px;background:#2a3f5a;border-radius:4px;flex-shrink:0'></div>")
+    st.markdown("<div style='display:flex;gap:12px;align-items:center;background:#fff;"
+                "border:1px solid #dde3e8;border-radius:6px;padding:8px 12px;margin-bottom:4px'>"
+                +ih+
+                "<div style='flex:1;min-width:0'>"
+                "<div style='font-weight:600;font-size:.88rem;color:#1b2838;"
+                "white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>"+j["title"]+"</div>"
+                "<div style='font-size:.72rem;color:#90a4b0;margin-top:3px;display:flex;gap:5px;align-items:center'>"
+                "<span style='color:#78909c'>"+j.get("platform","")+"</span>"
+                "<span>"+dot+st_+"</span></div></div>"
+                "<div style='text-align:right;flex-shrink:0'>"
+                "<div style='display:flex;gap:4px;align-items:center;justify-content:flex-end'>"
+                +db+flag+
+                "<span style='font-size:1rem;font-weight:700;color:"+prc+"'>"+pr_s+"</span></div>"
+                "<div style='font-size:.75rem;color:#b0bec5'>"+st_+(" · "+op_s if op_s else "")+"</div>"
+                "</div></div>",unsafe_allow_html=True)
+    c1,c2=st.columns([5,1])
+    with c1:
+        if st.button("Ver detalhes",key="cd"+j["game_id"]+str(i),use_container_width=True):
+            st.session_state.update({"jogo_id":j["game_id"],"goto":"🔍 Buscar"}); st.rerun()
+    with c2:
+        if st.button("⌄",key="ex"+j["game_id"]+str(i),use_container_width=True,help="Expandir"):
+            k="open_"+j["game_id"]
+            st.session_state[k]=not st.session_state.get(k,False)
+    if st.session_state.get("open_"+j["game_id"]):
+        with st.container(border=True):
+            painel_expandido(j)
 
 def detalhe(jg):
-    ofs=[o for o in ofertas(jg["id"]) if o.get("price") is not None]
-    ofs.sort(key=lambda o:float(o["price"]))
+    ofs=sorted([o for o in get_ofertas(jg["id"]) if o.get("price") is not None],key=lambda o:float(o["price"]))
     ca,ci=st.columns([1,2.5])
     with ca:
         if jg.get("cover_url"): st.image(jg["cover_url"],use_container_width=True)
-        st.markdown(f"**{jg['title']}**"); st.caption(f"{jg['platform']}")
+        st.markdown("**"+jg["title"]+"**"); st.caption(jg["platform"])
     with ci:
         if not ofs: st.warning("Sem preços ainda."); return
         mn=float(ofs[0]["price"]); oids=[o["offer_id"] for o in ofs]
-        hm=hmin(oids); low=hm is not None and mn<=hm+.01
+        hm=get_hmin(oids); low=hm is not None and mn<=hm+.01
         m1,m2,m3=st.columns(3)
         m1.metric("💰 Menor",R(mn))
         if ofs[0].get("old_price") and float(ofs[0]["old_price"])>mn:
             m2.metric("💸 Economia",R(float(ofs[0]["old_price"])-mn))
-        if ofs[0].get("discount_percent"): m3.metric("🏷️",f"{ofs[0]['discount_percent']}%")
+        if ofs[0].get("discount_percent"): m3.metric("🏷️",str(ofs[0]["discount_percent"])+"%")
         if low: st.success("🏷️ Mínimo histórico!")
         rows=""
         for i,o in enumerate(ofs):
             pr=float(o["price"]); df=pr-mn; dp=(df/mn*100) if mn>0 else 0
             cor=CORES.get(o["store"],"#90a4b0")
-            disc=f"-{o['discount_percent']}%" if o.get("discount_percent") else "—"
-            vs="✅ menor" if df==0 else f"+{R(df)} ({dp:.0f}%)"
-            rows+=(f"<tr><td>{MED.get(i,f'{i+1}º')}</td>"
-                   f"<td><span style='border-left:3px solid {cor};padding-left:6px'>{o['store']}</span></td>"
-                   f"<td><b>{R(pr)}</b></td><td>{disc}</td>"
-                   f"<td style='color:#90a4b0;font-size:.8rem'>{vs}</td></tr>")
-        st.markdown(f'<table class="rt"><thead><tr><th></th><th>Loja</th><th>Preço</th><th>Desc.</th><th>vs menor</th></tr></thead><tbody>{rows}</tbody></table>',unsafe_allow_html=True)
+            disc=("-"+str(o["discount_percent"])+"%") if o.get("discount_percent") else "—"
+            vs="✅ menor" if df==0 else "+"+R(df)+" ("+str(round(dp))+"% )"
+            rows+=("<tr><td>"+MED.get(i,str(i+1)+"º")+"</td>"
+                   "<td><span style='border-left:3px solid "+cor+";padding-left:6px'>"+o["store"]+"</span></td>"
+                   "<td><b>"+R(pr)+"</b></td><td>"+disc+"</td>"
+                   "<td style='color:#90a4b0;font-size:.8rem'>"+vs+"</td></tr>")
+        st.markdown("<table class='rt'><thead><tr><th></th><th>Loja</th><th>Preço</th><th>Desc.</th><th>vs menor</th></tr></thead><tbody>"+rows+"</tbody></table>",unsafe_allow_html=True)
         st.markdown("")
         for o in ofs:
-            pr=float(o["price"]); lb=f"🆓 {o['store']} — Grátis" if pr==0 else f"🛒 {o['store']} — {R(pr)}"
+            pr=float(o["price"]); lb=("🆓 "+o["store"]+" — Grátis") if pr==0 else ("🛒 "+o["store"]+" — "+R(pr))
             st.link_button(lb,o.get("product_url","#"),use_container_width=True)
         st.markdown("#### 📈 Histórico")
         mp={o["offer_id"]:o["store"] for o in ofs}
-        h=hist(list(mp.keys()))
+        h=get_hist(list(mp.keys()))
         if h:
-            df=pd.DataFrame(h); df["captured_at"]=pd.to_datetime(df["captured_at"])
-            df["Loja"]=df["offer_id"].map(mp); df["price"]=df["price"].astype(float)
-            dg=df[df["price"]>0]
+            df2=pd.DataFrame(h); df2["captured_at"]=pd.to_datetime(df2["captured_at"])
+            df2["Loja"]=df2["offer_id"].map(mp); df2["price"]=df2["price"].astype(float)
+            dg=df2[df2["price"]>0]
             if not dg.empty:
                 pv=dg.pivot_table(index="captured_at",columns="Loja",values="price",aggfunc="last")
                 st.line_chart(pv)
-                if hm: st.caption(f"Mínimo histórico: {R(hm)}")
+                if hm: st.caption("Mínimo histórico: "+R(hm))
         else: st.caption("Histórico disponível após mais coletas.")
     st.divider()
     with st.expander("🔔 Criar alerta"):
@@ -469,22 +313,50 @@ def detalhe(jg):
         al=c2.number_input("Preço alvo (R$)",min_value=1.,value=sg,step=5.)
         if st.button("🔔 Criar",type="primary"):
             if em and "@" in em:
-                SB.table("alerts").insert({"user_email":em,"game_id":jg["id"],"target_price":float(al)}).execute()
-                st.success(f"Alerta criado! Aviso quando {jg['title']} < {R(al)}")
+                DB.table("alerts").insert({"user_email":em,"game_id":jg["id"],"target_price":float(al)}).execute()
+                st.success("Alerta criado! Aviso quando "+jg["title"]+" < "+R(al))
             else: st.error("E-mail inválido.")
+
+# ── SIDEBAR ───────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("<div style='font-size:1.1rem;font-weight:700;color:#fff;padding:8px 0 4px'>🎮 GamePrice Brasil</div>",unsafe_allow_html=True)
+    pag=st.radio("p",["🏠 Deals","🔍 Buscar","📚 Catálogo","📊 Stats"],label_visibility="collapsed")
+    st.markdown("---")
+    st.markdown("<div style='font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px'>🏪 Shop</div>",unsafe_allow_html=True)
+    dots="".join(["<div style='padding:3px 0;font-size:.82rem'><span style='display:inline-block;width:8px;height:8px;border-radius:50%;background:"+LOJA_DOTS.get(l,"#888")+";margin-right:7px;vertical-align:middle'></span>"+l+"</div>" for l in list(LOJA_DOTS.keys())])
+    st.markdown(dots,unsafe_allow_html=True)
+    fl=st.selectbox("",["Todas"]+list(LOJA_DOTS.keys()),key="fl",label_visibility="collapsed")
+    st.markdown("---")
+    st.markdown("<div style='font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px'>💰 Price</div>",unsafe_allow_html=True)
+    fm=st.radio("pm",["Qualquer","Até R$ 5","Até R$ 25","Até R$ 50","Até R$ 100","Até R$ 150"],key="fm",label_visibility="collapsed")
+    st.markdown("---")
+    st.markdown("<div style='font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px'>🏷️ Price Cut</div>",unsafe_allow_html=True)
+    fd=st.radio("pc",["Qualquer","25% ou mais","50% ou mais","75% ou mais","90% ou mais"],key="fd",label_visibility="collapsed")
+    st.markdown("---")
+    st.markdown("<div style='font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px'>🎮 Plataforma</div>",unsafe_allow_html=True)
+    fp=st.radio("pp",PLAT,key="fp",label_visibility="collapsed")
+    st.markdown("---")
+    ep=get_epic(); cf=ep.get("current",[])
+    if cf:
+        st.markdown("<div style='font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px'>🎁 Grátis na Epic</div>",unsafe_allow_html=True)
+        for g in cf:
+            st.markdown("<div style='font-size:.8rem;color:#c6d4df;padding:2px 0'>• "+g["title"]+"</div>",unsafe_allow_html=True)
+            if g.get("end_date"): st.caption("até "+DT(g["end_date"]))
+        st.link_button("Ver na Epic →","https://store.epicgames.com/pt-BR/free-games",use_container_width=True)
+        st.markdown("---")
+    st.caption("📊 "+str(n_jogos())+" jogos · Steam · GOG · Humble")
 
 # ── NAVEGAÇÃO ─────────────────────────────────────────────────────────────────
 if st.session_state.get("goto"):
-    pag = st.session_state.pop("goto")
+    pag=st.session_state.pop("goto")
 
-# Colunas: margem | conteúdo | margem
-mg = [0.5, 7, 0.5]
+mg=[0.5,7,0.5]
 
 # ══════════════════════════════════════════════════════════════════════════════
-if pag == "🏠 Deals":
-    _,C,_ = st.columns(mg)
+if pag=="🏠 Deals":
+    _,C,_=st.columns(mg)
     with C:
-        ep=epic(); cf=ep.get("current",[]); nf=ep.get("next",[])
+        ep=get_epic(); cf=ep.get("current",[]); nf=ep.get("next",[])
         if cf or nf:
             st.markdown('<div class="sh">🎁 Grátis na Epic esta semana</div>',unsafe_allow_html=True)
             cols=st.columns(min(len(cf)+len(nf),4))
@@ -492,40 +364,33 @@ if pag == "🏠 Deals":
                 with cols[i%4]:
                     if g.get("image_url"): st.image(g["image_url"],use_container_width=True)
                     end=DT(g["end_date"]) if g.get("end_date") else ""
-                    st.markdown(f"**{g['title']}**")
-                    st.markdown(f'<span class="b b-blue">GRÁTIS</span> <span style="font-size:.7rem;color:#888">até {end}</span>',unsafe_allow_html=True)
+                    st.markdown("**"+g["title"]+"**")
+                    st.markdown("<span style='background:#1565c0;color:#fff;font-size:.68rem;font-weight:700;padding:2px 6px;border-radius:3px'>GRÁTIS</span> <span style='font-size:.7rem;color:#888'>até "+end+"</span>",unsafe_allow_html=True)
                     st.link_button("Pegar grátis →","https://store.epicgames.com/pt-BR/free-games",use_container_width=True)
             for i,g in enumerate(nf):
                 with cols[(len(cf)+i)%4]:
                     if g.get("image_url"): st.image(g["image_url"],use_container_width=True)
-                    st.markdown(f"**{g['title']}**")
-                    st.markdown(f'<span class="b b-amber">EM BREVE</span>',unsafe_allow_html=True)
+                    st.markdown("**"+g["title"]+"**")
+                    st.markdown("<span style='background:#e65100;color:#fff;font-size:.68rem;font-weight:700;padding:2px 6px;border-radius:3px'>EM BREVE</span>",unsafe_allow_html=True)
             st.divider()
-
-        # Converter filtros de radio para valores numéricos
-        pm = None
-        if fm != "Qualquer":
-            pm = float(fm.replace("Até R$ ","").replace(".","").replace(",","."))
-        disc_min = 0
-        if fd != "Qualquer":
-            disc_min = int(fd.split("%")[0])
-        loja_sel = fl if fl != "Todas" else "Todas"
-        plat_sel = fp if fp != "Todas" else "Todas"
-
+        pm=None
+        if fm!="Qualquer": pm=float(fm.replace("Até R$ ",""))
+        disc_min=0
+        if fd!="Qualquer": disc_min=int(fd.split("%")[0])
         st.markdown('<div class="sh">🔥 Melhores deals agora</div>',unsafe_allow_html=True)
-        ds=deals(loja_sel,plat_sel,disc_min,60)
+        ds=get_deals(fl,fp,disc_min,60)
         if pm: ds=[d for d in ds if float(d.get("price") or 0)<=pm]
         if not ds: st.info("Nenhum deal com esses filtros.")
         else:
-            st.caption(f"{len(ds)} deals")
-            for i,j in enumerate(ds): card(j,i)
+            st.caption(str(len(ds))+" deals")
+            for i,j in enumerate(ds): deal_card(j,i)
 
-elif pag == "🔍 Buscar":
-    _,C,_ = st.columns(mg)
+elif pag=="🔍 Buscar":
+    _,C,_=st.columns(mg)
     with C:
         jp=None
         if "jogo_id" in st.session_state:
-            r=SB.table("games").select("*").eq("id",st.session_state["jogo_id"]).execute().data
+            r=DB.table("games").select("*").eq("id",st.session_state["jogo_id"]).execute().data
             if r: jp=r[0]
         c1,c2,c3=st.columns([3,1,.7])
         t=c1.text_input("🔍 Nome do jogo",placeholder="ex.: Elden Ring, Witcher...",key="q")
@@ -537,19 +402,19 @@ elif pag == "🔍 Buscar":
         if t:
             js=buscar(t,pb)
             if not js: st.warning("Nenhum jogo."); st.stop()
-            tit={f"{j['title']} ({j['platform']})":j for j in js}
+            tit={j["title"]+" ("+j["platform"]+")":j for j in js}
             jg=js[0] if len(js)==1 else tit[st.selectbox("Selecione",list(tit.keys()))]
         else: jg=jp
         st.divider(); detalhe(jg)
 
-elif pag == "📚 Catálogo":
-    _,C,_ = st.columns(mg)
+elif pag=="📚 Catálogo":
+    _,C,_=st.columns(mg)
     with C:
         c1,c2,c3=st.columns([2,1,1])
         nm=c1.text_input("🔍 Nome",key="cn",placeholder="ex.: Hades, Elden...")
         pt=c2.selectbox("Plataforma",PLAT,key="cp")
         od=c3.selectbox("Ordenar",["A-Z","Menor preço","Maior desconto"],key="co")
-        q=SB.table("v_game_offers").select("game_id,title,platform,cover_url,price,discount_percent").order("title").limit(500)
+        q=DB.table("v_game_offers").select("game_id,title,platform,cover_url,price,discount_percent").order("title").limit(500)
         if pt!="Todas": q=q.eq("platform",pt)
         rows=q.execute().data
         vis={}
@@ -560,27 +425,27 @@ elif pag == "📚 Catálogo":
         if nm: jc=[j for j in jc if nm.lower() in j.get("title","").lower()]
         if od=="Menor preço": jc=sorted(jc,key=lambda x:float(x.get("price") or 9999))
         elif od=="Maior desconto": jc=sorted(jc,key=lambda x:x.get("discount_percent") or 0,reverse=True)
-        st.caption(f"{len(jc)} jogos")
+        st.caption(str(len(jc))+" jogos")
         for rs in range(0,len(jc),5):
             cols=st.columns(5)
             for ci,j in enumerate(jc[rs:rs+5]):
                 with cols[ci]:
                     if j.get("cover_url"): st.image(j["cover_url"],use_container_width=True)
                     pc=j.get("discount_percent") or 0
-                    bx=f'<span class="b b-green">-{pc}%</span>' if pc else ""
-                    st.markdown(f'<div style="font-size:.78rem;font-weight:600;color:#1b2838;line-height:1.2;margin-top:3px">{j["title"]}</div>'
-                                f'<div style="color:#3a8a3a;font-weight:700;font-size:.82rem">{R(j.get("price"))} {bx}</div>',unsafe_allow_html=True)
-                    if st.button("Ver",key=f"ct{j['game_id']}{rs+ci}",use_container_width=True):
+                    bx=("<span style='background:#3a8a3a;color:#fff;font-size:.65rem;padding:1px 4px;border-radius:3px'>-"+str(pc)+"%</span>") if pc else ""
+                    st.markdown("<div style='font-size:.78rem;font-weight:600;color:#1b2838;line-height:1.2;margin-top:3px'>"+j["title"]+"</div>"
+                                "<div style='color:#3a8a3a;font-weight:700;font-size:.82rem'>"+R(j.get("price"))+" "+bx+"</div>",unsafe_allow_html=True)
+                    if st.button("Ver",key="ct"+j["game_id"]+str(rs+ci),use_container_width=True):
                         st.session_state.update({"jogo_id":j["game_id"],"goto":"🔍 Buscar"}); st.rerun()
 
 else:
-    _,C,_ = st.columns(mg)
+    _,C,_=st.columns(mg)
     with C:
         st.subheader("📊 Estatísticas")
-        s=stats()
+        s=get_stats()
         c1,c2,c3=st.columns(3)
-        c1.metric("🎮 Jogos",f"{s['jogos']:,}")
-        c2.metric("💰 Preços",f"{s['precos']:,}")
+        c1.metric("🎮 Jogos","{:,}".format(s["jogos"]))
+        c2.metric("💰 Preços","{:,}".format(s["precos"]))
         c3.metric("🏪 Lojas",len(s["lojas"]))
         st.divider()
         cL,cR=st.columns(2)
@@ -591,11 +456,11 @@ else:
                 st.bar_chart(df["ofertas"])
         with cR:
             st.markdown("**🔥 Top descontos**")
-            top=deals(lim=10)
+            top=get_deals(lim=10)
             if top:
                 st.dataframe(pd.DataFrame([{"Jogo":j["title"],"Loja":j.get("store",""),
-                    "Preço":R(j.get("price")),"Desc":f"{j.get('discount_percent',0)}%"}
+                    "Preço":R(j.get("price")),"Desc":str(j.get("discount_percent",0))+"%"}
                     for j in top]),hide_index=True,use_container_width=True)
-        ep=epic(); c1,c2=st.columns(2)
+        ep=get_epic(); c1,c2=st.columns(2)
         c1.metric("Grátis Epic",len(ep.get("current",[])))
         c2.metric("Em breve",len(ep.get("next",[])))

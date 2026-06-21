@@ -1,5 +1,20 @@
-"""Conectores de loja para o worker."""
+"""Conectores de loja para o worker.
+
+Steam  : API pública de storefront. Operante.
+ITAD   : IsThereAnyDeal API — agrega GOG, Epic, Nuuvem, Fanatical e 30+ lojas.
+Epic   : Free Games semanais (endpoint separado, sem autenticação).
+ML/Amazon: scaffold.
+"""
+import os
+import time
 import httpx
+
+ITAD_KEY = os.environ.get("ITAD_API_KEY", "")
+ITAD_BASE = "https://api.isthereanydeal.com"
+
+# Lojas do ITAD que queremos cobrir (slugs da ITAD)
+ITAD_SHOPS = ["gog", "epic", "nuuvem", "fanatical", "humblestore", "greenmanrepublic"]
+
 
 # ── Steam ─────────────────────────────────────────────────────────────────────
 
@@ -37,118 +52,114 @@ def fetch_steam(appid: str, cc: str = "br", lang: str = "portuguese") -> dict | 
     }
 
 
-# ── GOG ───────────────────────────────────────────────────────────────────────
+# ── IsThereAnyDeal ────────────────────────────────────────────────────────────
 
-def fetch_gog(external_id: str) -> dict | None:
-    """Busca preço na GOG pelo ID do produto.
+# Cache em memória: título → ITAD ID (evita buscas repetidas)
+_itad_id_cache: dict[str, str] = {}
 
-    Usa o endpoint individual com fallback para o endpoint em lote.
-    external_id = ID numérico do produto na GOG (ex: 1207658924)
-    """
-    # Endpoint 1: individual (mais direto)
-    for endpoint in [
-        f"https://api.gog.com/products/{external_id}?expand=prices&countryCode=BR",
-        f"https://www.gog.com/pt/game/ajax/reviewsPage?gameId={external_id}",
-    ]:
-        try:
-            r = httpx.get(
-                endpoint,
-                timeout=15,
-                headers={
-                    "User-Agent":      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120",
-                    "Accept":          "application/json",
-                    "Accept-Language": "pt-BR,pt;q=0.9",
-                    "Referer":         "https://www.gog.com/pt/",
-                },
-                follow_redirects=True,
-            )
-            if r.status_code != 200:
-                continue
-            data = r.json()
-            prices = data.get("_embedded", {}).get("prices", [])
-            if not prices:
-                continue
-            p = prices[0]
-            final = p.get("finalPrice", "0 BRL").split(" ")[0]
-            base  = p.get("basePrice",  "0 BRL").split(" ")[0]
-            final_val = round(float(final) / 100, 2)
-            base_val  = round(float(base)  / 100, 2)
-            if final_val <= 0 and base_val <= 0:
-                return None
-            disc = int(((base_val - final_val) / base_val) * 100) if base_val > 0 else 0
-            return {
-                "price":            final_val,
-                "old_price":        base_val if base_val != final_val else None,
-                "discount_percent": disc,
-                "available":        True,
-            }
-        except Exception as exc:
-            print(f"  [gog] erro no id {external_id} ({endpoint[:50]}): {exc}")
-            continue
+
+def itad_lookup_by_title(title: str) -> str | None:
+    """Busca o ITAD ID de um jogo pelo título."""
+    if title in _itad_id_cache:
+        return _itad_id_cache[title]
+    try:
+        r = httpx.get(
+            f"{ITAD_BASE}/games/search/v1",
+            params={"title": title, "key": ITAD_KEY},
+            headers={"User-Agent": "GamePriceBrasil/1.0"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        results = r.json()
+        if results:
+            itad_id = results[0]["id"]
+            _itad_id_cache[title] = itad_id
+            return itad_id
+    except Exception as exc:
+        print(f"  [itad] lookup '{title}': {exc}")
     return None
 
 
-def search_gog(title: str) -> dict | None:
-    """Busca um jogo no catálogo da GOG por título.
-    Retorna o ID do produto e informações básicas.
-    Usado pelo discover_games.py para indexar jogos da GOG.
+def itad_prices_batch(itad_ids: list[str], country: str = "BR") -> dict[str, list]:
+    """Busca preços de múltiplos jogos em lote.
+    Retorna {itad_id: [{"shop": "gog", "price": 12.99, "cut": 90, "url": ...}]}
     """
+    if not itad_ids or not ITAD_KEY:
+        return {}
     try:
-        r = httpx.get(
-            "https://catalog.gog.com/v1/catalog",
-            params={
-                "limit":        5,
-                "locale":       "pt-BR",
-                "countryCode":  "BR",
-                "currencyCode": "BRL",
-                "productType":  "in:game",
-                "query":        f"contains:{title}",
-                "order":        "desc:score",
-            },
-            timeout=15,
+        r = httpx.post(
+            f"{ITAD_BASE}/games/prices/v3",
+            params={"key": ITAD_KEY, "country": country},
+            json=itad_ids,
             headers={
-                "User-Agent": "Mozilla/5.0",
-                "Accept":     "application/json",
+                "Content-Type": "application/json",
+                "User-Agent":   "GamePriceBrasil/1.0",
             },
+            timeout=20,
         )
         r.raise_for_status()
-        products = r.json().get("products", [])
+        data = r.json()
     except Exception as exc:
-        print(f"  [gog_search] erro para '{title}': {exc}")
+        print(f"  [itad] prices_batch: {exc}")
+        return {}
+
+    result = {}
+    for item in data:
+        gid   = item.get("id", "")
+        deals = item.get("deals", [])
+        prices_list = []
+        for d in deals:
+            shop_slug = d.get("shop", {}).get("id", "")
+            amount    = (d.get("price") or {}).get("amount", 0)
+            regular   = (d.get("regular") or {}).get("amount", 0)
+            cut       = d.get("cut", 0)
+            url       = d.get("url", "")
+            if amount and amount > 0:
+                prices_list.append({
+                    "shop":     shop_slug,
+                    "price":    round(float(amount), 2),
+                    "old_price": round(float(regular), 2) if regular and regular != amount else None,
+                    "cut":      int(cut),
+                    "url":      url,
+                })
+        result[gid] = prices_list
+    return result
+
+
+def fetch_itad(external_id: str) -> dict | None:
+    """Busca preço via ITAD para GOG, Epic ou outra loja.
+
+    external_id formato: ITAD|SHOP_SLUG|ITAD_GAME_ID
+    ex: ITAD|gog|018d937f-590e-7271-8e31-e0e4e9e8c5ed
+    """
+    if not external_id.startswith("ITAD|"):
         return None
-
-    if not products:
+    parts = external_id.split("|", 2)
+    if len(parts) != 3:
         return None
+    _, shop_slug, itad_id = parts
 
-    p = products[0]
-    return {
-        "id":    p.get("id", ""),
-        "title": p.get("title", ""),
-        "slug":  p.get("storeLink", "").replace("/game/", "").strip("/"),
-        "cover": p.get("coverHorizontal", ""),
-        "price": p.get("price", {}),
-    }
+    prices = itad_prices_batch([itad_id])
+    deals  = prices.get(itad_id, [])
+
+    # Filtra pelo shop correto
+    for d in deals:
+        if d["shop"] == shop_slug:
+            return {
+                "price":            d["price"],
+                "old_price":        d.get("old_price"),
+                "discount_percent": d["cut"],
+                "available":        True,
+            }
+    return None
 
 
-# ── Epic Games — Free Games (operante) ───────────────────────────────────────
+# ── Epic Games — Free Games (operante, sem auth) ──────────────────────────────
 
 EPIC_FREE_URL = (
     "https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions"
     "?locale=pt-BR&country=BR&allowCountries=BR"
 )
-
-
-def _epic_store_url(el: dict) -> str:
-    for m in (el.get("catalogNs") or {}).get("mappings") or []:
-        if m.get("pageType") == "productHome" and m.get("pageSlug"):
-            return f"https://store.epicgames.com/pt-BR/p/{m['pageSlug']}"
-    slug = (el.get("productSlug") or "").replace("/home", "").strip("/")
-    if slug and slug != "[]":
-        return f"https://store.epicgames.com/pt-BR/p/{slug}"
-    slug = el.get("urlSlug") or ""
-    if slug:
-        return f"https://store.epicgames.com/pt-BR/p/{slug}"
-    return "https://store.epicgames.com/pt-BR/free-games"
 
 
 def fetch_epic_free_games() -> dict:
@@ -203,22 +214,29 @@ def fetch_epic_free_games() -> dict:
                         "start_date": offer.get("startDate", ""),
                         "store_url":  store_url,
                     })
-
     return result
 
 
 def fetch_epic(external_id: str) -> dict | None:
-    """Preços da Epic — desativado (endpoint GraphQL mudou)."""
+    """Preços Epic via ITAD (se external_id começa com ITAD|epic|...)."""
+    if external_id.startswith("ITAD|epic|"):
+        return fetch_itad(external_id)
     return None
 
 
-# ── Mercado Livre (bloqueado por política) ────────────────────────────────────
+def fetch_gog(external_id: str) -> dict | None:
+    """Preços GOG via ITAD (se external_id começa com ITAD|gog|...)."""
+    if external_id.startswith("ITAD|"):
+        return fetch_itad(external_id)
+    # ID numérico legado (inserido manualmente) — sem fetch automático
+    return None
+
+
+# ── Mercado Livre / Amazon (scaffold) ─────────────────────────────────────────
 
 def fetch_mercadolivre(external_id: str) -> dict | None:
     return None
 
-
-# ── Amazon (scaffold) ─────────────────────────────────────────────────────────
 
 def fetch_amazon(external_id: str) -> dict | None:
     return None

@@ -586,23 +586,21 @@ else:
         st.subheader("🔥 Maiores descontos ativos")
         quedas = maiores_quedas_de_preco()
         if quedas:
+            import pandas as pd
+            linhas_desc = []
             for q in quedas[:8]:
                 pct   = q.get("discount_percent", 0)
                 preco = float(q.get("price") or 0)
                 op    = float(q.get("old_price") or preco)
-                # Usa HTML puro para evitar conflito de markdown
-                st.markdown(
-                    f"<b>{q.get('title','?')}</b> · "
-                    f"<span style='color:#888'>{q.get('store','')}</span><br>"
-                    f"<span style='text-decoration:line-through;color:#aaa'>"
-                    f"{fmt_preco(op)}</span> → "
-                    f"<b style='color:#e94560'>{fmt_preco(preco)}</b> "
-                    f"<span style='background:#e94560;color:white;font-size:0.75rem;"
-                    f"font-weight:700;padding:1px 6px;border-radius:4px'>-{pct}%</span>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown("<hr style='margin:4px 0;border-color:#eee'>",
-                            unsafe_allow_html=True)
+                linhas_desc.append({
+                    "Jogo":     q.get("title", "?"),
+                    "Loja":     q.get("store", ""),
+                    "De":       fmt_preco(op),
+                    "Por":      fmt_preco(preco),
+                    "Desconto": f"-{pct}%",
+                })
+            st.dataframe(pd.DataFrame(linhas_desc),
+                         hide_index=True, use_container_width=True)
         else:
             st.info("Sem dados de quedas de preço ainda.")
 

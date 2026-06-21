@@ -1,0 +1,25 @@
+name: itad-update
+
+on:
+  workflow_dispatch:   # Manual — para testar GOG/Humble rapidamente
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: gameprice-streamlit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+      - name: Atualizar precos ITAD (GOG + Humble) + Epic free
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ITAD_API_KEY: ${{ secrets.ITAD_API_KEY }}
+        run: python worker/update_itad_only.py

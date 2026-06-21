@@ -202,28 +202,74 @@ with st.sidebar:
     st.caption(f"📊 {n_jogos()} jogos · Steam · GOG · Humble")
 
 # ── COMPONENTES ───────────────────────────────────────────────────────────────
+def flag_html(pr, op, pc):
+    """Gera badges N/H/S conforme histórico."""
+    # Por ora usa o desconto como heurística
+    # N = novo mínimo (>= 90% off), H = mínimo histórico (>= 75%), S = menor loja (>= 50%)
+    flags = ""
+    if pc >= 90:
+        flags += '<span style="background:#c62828;color:#fff;font-size:.6rem;font-weight:700;padding:1px 3px;border-radius:2px;margin-right:2px">N</span>'
+    elif pc >= 75:
+        flags += '<span style="background:#e65100;color:#fff;font-size:.6rem;font-weight:700;padding:1px 3px;border-radius:2px;margin-right:2px">H</span>'
+    elif pc >= 50:
+        flags += '<span style="background:#1565c0;color:#fff;font-size:.6rem;font-weight:700;padding:1px 3px;border-radius:2px;margin-right:2px">S</span>'
+    return flags
+
 def card(j,i):
-    pr=float(j.get("price") or 0); op=float(j.get("old_price") or 0)
-    pc=j.get("discount_percent") or 0; st_=j.get("store",""); cor=CORES.get(st_,"#90a4b0")
-    img=j.get("cover_url","")
-    img_h=f'<img src="{img}">' if img else '<div style="width:80px;height:45px;background:#e8edf0;border-radius:4px;flex-shrink:0"></div>'
-    bdg=('<span class="b b-blue">GRÁTIS</span>' if pr==0
-         else f'<span class="b b-green">-{pc}%</span>' if pc>0 else "")
-    pr_h="Gratuito" if pr==0 else f"R$ {pr:.2f}"
-    op_h=f'<div class="deal-orig">R$ {op:.2f}</div>' if op>pr>0 else ""
-    lo_h=f'<span class="loja" style="border-left-color:{cor}">{st_}</span>'
-    pl_h=f'<span style="color:#b0bec5;font-size:.7rem">{j.get("platform","")}</span>'
-    st.markdown(f'''<div class="deal">
-{img_h}
-<div class="deal-body">
-  <div class="deal-name">{j["title"]}</div>
-  <div class="deal-sub">{pl_h}{lo_h}{bdg}</div>
-</div>
-<div class="deal-right">
-  <div class="deal-price">{pr_h}</div>{op_h}
-</div>
-</div>''',unsafe_allow_html=True)
-    if st.button("Ver detalhes",key=f"c{j['game_id']}{i}",use_container_width=True):
+    pr = float(j.get("price") or 0)
+    op = float(j.get("old_price") or 0)
+    pc = j.get("discount_percent") or 0
+    st_ = j.get("store","")
+    cor = CORES.get(st_,"#90a4b0")
+    img = j.get("cover_url","")
+    plat = j.get("platform","PC")
+
+    # Badge de desconto
+    if pr == 0:
+        disc_badge = '<span style="background:#1a1a1a;color:#fff;font-size:.75rem;font-weight:700;padding:2px 7px;border-radius:4px;border:1px solid #444">-100%</span>'
+        pr_color = "#ef5350"
+    elif pc > 0:
+        disc_badge = f'<span style="background:#1a1a1a;color:#fff;font-size:.75rem;font-weight:700;padding:2px 7px;border-radius:4px;border:1px solid #444">-{pc}%</span>'
+        pr_color = "#ef5350" if pc >= 75 else "#ff9800" if pc >= 50 else "#66bb6a"
+    else:
+        disc_badge = ""
+        pr_color = "#4caf50"
+
+    flags = flag_html(pr, op, pc)
+    pr_str = "R$ 0,00" if pr == 0 else f"R$ {pr:.2f}"
+    op_str = f"R$ {op:.2f}" if op > pr > 0 else ""
+
+    # Ponto colorido da loja
+    dot = f'<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:{cor};margin-right:4px;vertical-align:middle"></span>'
+
+    img_html = (f'<img src="{img}" style="width:100px;height:56px;object-fit:cover;border-radius:4px;flex-shrink:0">' 
+                if img else '<div style="width:100px;height:56px;background:#2a3f5a;border-radius:4px;flex-shrink:0"></div>')
+
+    st.markdown(f"""
+<div style="display:flex;gap:12px;align-items:center;
+            background:#fff;border:1px solid #dde3e8;border-radius:6px;
+            padding:8px 12px;margin-bottom:4px">
+  {img_html}
+  <div style="flex:1;min-width:0">
+    <div style="font-weight:600;font-size:.88rem;color:#1b2838;
+                white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{j["title"]}</div>
+    <div style="font-size:.72rem;color:#90a4b0;margin-top:3px;display:flex;gap:5px;align-items:center">
+      <span style="color:#78909c">{plat}</span>
+      <span>{dot}{st_}</span>
+    </div>
+  </div>
+  <div style="text-align:right;flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+    <div style="display:flex;gap:4px;align-items:center">
+      {disc_badge} {flags}
+      <span style="font-size:1rem;font-weight:700;color:{pr_color}">{pr_str}</span>
+    </div>
+    <div style="font-size:.75rem;color:#b0bec5">
+      {st_} {'· ' + op_str if op_str else ''}
+    </div>
+  </div>
+</div>""", unsafe_allow_html=True)
+
+    if st.button("Ver detalhes", key=f"c{j['game_id']}{i}", use_container_width=True):
         st.session_state.update({"jogo_id":j["game_id"],"goto":"🔍 Buscar"}); st.rerun()
 
 def detalhe(jg):

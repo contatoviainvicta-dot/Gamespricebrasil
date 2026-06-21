@@ -1,7 +1,7 @@
 """GamePrice Brasil - comparador de precos de jogos (Streamlit + Supabase)."""
 import pandas as pd
 import streamlit as st
-from datetime import datetime, timezone
+from datetime import datetime
 from supabase import Client, create_client
 
 st.set_page_config(
@@ -27,21 +27,13 @@ st.markdown("""
     padding: 1px 5px; border-radius: 4px; margin-left: 5px;
 }
 .card-platform { font-size: 0.72rem; color: #666; margin-top: 2px; }
-.epic-free-card {
-    background: linear-gradient(135deg, #2d0080 0%, #6600cc 100%);
-    border-radius: 12px; padding: 12px; color: white; text-align: center;
+.metric-card {
+    background: #f8f9fa; border-radius: 10px;
+    padding: 16px; text-align: center;
+    border: 1px solid #e0e0e0;
 }
-.epic-free-title { font-size: 0.9rem; font-weight: 700; margin: 6px 0 2px; }
-.epic-free-badge {
-    background: #00d4aa; color: #000;
-    font-size: 0.7rem; font-weight: 700;
-    padding: 2px 8px; border-radius: 20px; display: inline-block;
-}
-.epic-next-badge {
-    background: #ff6b35; color: white;
-    font-size: 0.7rem; font-weight: 700;
-    padding: 2px 8px; border-radius: 20px; display: inline-block;
-}
+.metric-value { font-size: 2rem; font-weight: 700; color: #e94560; }
+.metric-label { font-size: 0.8rem; color: #666; margin-top: 4px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -61,7 +53,6 @@ def fmt_preco(valor) -> str:
 
 
 def fmt_data(iso: str) -> str:
-    """Converte ISO date para formato legível."""
     try:
         dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
         return dt.strftime("%d/%m às %H:%Mh")
@@ -92,8 +83,7 @@ def jogos_com_desconto(limite: int = 12) -> list[dict]:
         .select("game_id,title,slug,platform,cover_url,store,price,discount_percent")
         .gt("discount_percent", 0)
         .order("discount_percent", desc=True)
-        .limit(limite)
-        .execute().data
+        .limit(limite).execute().data
     )
 
 
@@ -102,9 +92,7 @@ def jogos_mais_baratos(plataforma: str = "Todas", limite: int = 12) -> list[dict
     q = (
         sb.table("v_game_offers")
         .select("game_id,title,slug,platform,cover_url,store,price,discount_percent")
-        .gt("price", 0)
-        .order("price", desc=False)
-        .limit(limite)
+        .gt("price", 0).order("price").limit(limite)
     )
     if plataforma != "Todas":
         q = q.eq("platform", plataforma)
@@ -123,17 +111,15 @@ def catalogo_completo(plataforma: str = "Todas") -> list[dict]:
     rows = q.execute().data
     visto: dict = {}
     for r in rows:
-        gid  = r["game_id"]
-        p    = float(r.get("price") or 9999)
-        pant = float(visto[gid].get("price") or 9999) if gid in visto else 9999
-        if gid not in visto or p < pant:
+        gid = r["game_id"]
+        p   = float(r.get("price") or 9999)
+        if gid not in visto or p < float(visto[gid].get("price") or 9999):
             visto[gid] = r
     return sorted(visto.values(), key=lambda x: x.get("title", ""))
 
 
-@st.cache_data(ttl=1800)  # 30 min — muda só quinta-feira
+@st.cache_data(ttl=1800)
 def epic_free_games() -> dict:
-    """Lê jogos gratuitos da Epic salvos pelo worker."""
     try:
         r = sb.table("epic_free_games").select("current,next,updated_at")\
                .eq("id", 1).execute().data
@@ -156,11 +142,106 @@ def ofertas_do_jogo(game_id: str) -> list[dict]:
 def historico_do_jogo(offer_ids: list[str]) -> list[dict]:
     if not offer_ids: return []
     return (
-        sb.table("prices")
-        .select("offer_id,price,captured_at")
-        .in_("offer_id", offer_ids)
-        .order("captured_at").execute().data
+        sb.table("prices").select("offer_id,price,captured_at")
+        .in_("offer_id", offer_ids).order("captured_at").execute().data
     )
+
+
+# ── Queries de métricas ───────────────────────────────────────────────────────
+@st.cache_data(ttl=600)
+def metricas_gerais() -> dict:
+    total_g = total_jogos()
+    total_p = len(sb.table("prices").select("id").execute().data)
+    total_lojas = len(sb.table("stores").select("id").eq("active", True).execute().data)
+    total_alertas = len(sb.table("alerts").select("id").eq("active", True).execute().data)
+    return {
+        "jogos": total_g,
+        "precos": total_p,
+        "lojas": total_lojas,
+        "alertas": total_alertas,
+    }
+
+
+@st.cache_data(ttl=600)
+def maiores_quedas_de_preco() -> list[dict]:
+    """Jogos com maior queda de preço relativa entre a primeira e última coleta."""
+    try:
+        r = sb.rpc("maiores_quedas_preco", {}).execute()
+        return r.data or []
+    except Exception:
+        # Fallback: busca jogos com maior desconto atual
+        return (
+            sb.table("v_game_offers")
+            .select("title,store,price,old_price,discount_percent,cover_url")
+            .gt("discount_percent", 50)
+            .order("discount_percent", desc=True)
+            .limit(10).execute().data
+        )
+
+
+@st.cache_data(ttl=600)
+def precos_por_loja() -> list[dict]:
+    """Quantidade de ofertas ativas por loja."""
+    lojas = sb.table("stores").select("id,name,slug").eq("active", True).execute().data
+    result = []
+    for loja in lojas:
+        count = len(
+            sb.table("game_store_offers")
+            .select("id")
+            .eq("store_id", loja["id"])
+            .eq("active", True)
+            .execute().data
+        )
+        if count > 0:
+            result.append({"loja": loja["name"], "ofertas": count})
+    return sorted(result, key=lambda x: x["ofertas"], reverse=True)
+
+
+@st.cache_data(ttl=600)
+def evolucao_catalogo() -> list[dict]:
+    """Quantidade de preços coletados por dia (crescimento do banco)."""
+    r = sb.table("prices").select("captured_at").order("captured_at").execute().data
+    if not r:
+        return []
+    df = pd.DataFrame(r)
+    df["captured_at"] = pd.to_datetime(df["captured_at"])
+    df["data"] = df["captured_at"].dt.date
+    contagem = df.groupby("data").size().reset_index(name="coletas")
+    contagem["acumulado"] = contagem["coletas"].cumsum()
+    return contagem.to_dict("records")
+
+
+@st.cache_data(ttl=600)
+def jogos_com_mais_historico() -> list[dict]:
+    """Jogos com mais pontos de histórico de preço."""
+    r = sb.table("prices").select("offer_id").execute().data
+    if not r:
+        return []
+    df = pd.DataFrame(r)
+    contagem = df["offer_id"].value_counts().head(10).reset_index()
+    contagem.columns = ["offer_id", "coletas"]
+    result = []
+    for _, row in contagem.iterrows():
+        oferta = (
+            sb.table("game_store_offers")
+            .select("game_id,stores(name)")
+            .eq("id", row["offer_id"])
+            .execute().data
+        )
+        if oferta:
+            game = (
+                sb.table("games")
+                .select("title")
+                .eq("id", oferta[0]["game_id"])
+                .execute().data
+            )
+            if game:
+                result.append({
+                    "jogo":   game[0]["title"],
+                    "loja":   (oferta[0].get("stores") or {}).get("name", ""),
+                    "pontos": int(row["coletas"]),
+                })
+    return result
 
 
 def link_afiliado(url: str, codigo: str | None) -> str:
@@ -190,7 +271,7 @@ def card_jogo(j: dict, key_prefix: str, idx: int) -> None:
     )
     if st.button("Ver detalhes", key=f"{key_prefix}_{j['game_id']}_{idx}",
                  use_container_width=True):
-        st.session_state["jogo_id"] = j["game_id"]
+        st.session_state["jogo_id"]  = j["game_id"]
         st.session_state["ir_busca"] = True
         st.rerun()
 
@@ -207,7 +288,7 @@ else:
 
 aba = st.radio(
     "Navegar",
-    ["🏠 Início", "📚 Catálogo", "🔍 Buscar"],
+    ["🏠 Início", "📚 Catálogo", "🔍 Buscar", "📊 Dashboard"],
     horizontal=True,
     label_visibility="collapsed",
     index=aba_default,
@@ -221,81 +302,70 @@ st.divider()
 # ══════════════════════════════════════════════════════════════════════════════
 if aba == "🏠 Início":
 
-    # ── Jogos gratuitos da Epic ───────────────────────────────────────────────
+    # Epic free games
     epic = epic_free_games()
     current_free = epic.get("current", [])
     next_free    = epic.get("next", [])
 
     if current_free or next_free:
         st.subheader("🎁 Grátis na Epic Games")
-
-        col_width = max(1, len(current_free) + len(next_free))
-        cols = st.columns(min(col_width, 6))
-        col_idx = 0
-
+        total_epic = len(current_free) + len(next_free)
+        cols = st.columns(min(total_epic, 6))
+        idx  = 0
         for g in current_free:
-            with cols[col_idx % 6]:
+            with cols[idx % 6]:
                 if g.get("image_url"):
                     st.image(g["image_url"], use_container_width=True)
                 end = fmt_data(g["end_date"]) if g.get("end_date") else ""
                 st.markdown(
-                    f'<div class="epic-free-title">{g["title"]}</div>'
-                    f'<span class="epic-free-badge">🎁 GRÁTIS AGORA</span>'
-                    f'{"<br><small style='color:#666'>até " + end + "</small>" if end else ""}',
+                    f'<div class="card-title">{g["title"]}</div>'
+                    f'<span style="background:#00d4aa;color:#000;font-size:0.7rem;'
+                    f'font-weight:700;padding:2px 8px;border-radius:20px">'
+                    f'🎁 GRÁTIS AGORA</span>'
+                    f'{"<br><small style=color:#666>até " + end + "</small>" if end else ""}',
                     unsafe_allow_html=True,
                 )
-                # Usa sempre a página de free-games como destino seguro.
-                # O slug individual da API às vezes é interno e gera 404.
-                epic_url = "https://store.epicgames.com/pt-BR/free-games"
-                st.link_button(
-                    "Pegar grátis na Epic →",
-                    epic_url,
-                    use_container_width=True,
-                )
-            col_idx += 1
+                st.link_button("Pegar grátis na Epic →",
+                               "https://store.epicgames.com/pt-BR/free-games",
+                               use_container_width=True)
+            idx += 1
 
         for g in next_free:
-            with cols[col_idx % 6]:
+            with cols[idx % 6]:
                 if g.get("image_url"):
                     st.image(g["image_url"], use_container_width=True)
                 start = fmt_data(g["start_date"]) if g.get("start_date") else ""
                 st.markdown(
-                    f'<div class="epic-free-title">{g["title"]}</div>'
-                    f'<span class="epic-next-badge">🔜 EM BREVE</span>'
-                    f'{"<br><small style='color:#666'>a partir de " + start + "</small>" if start else ""}',
+                    f'<div class="card-title">{g["title"]}</div>'
+                    f'<span style="background:#ff6b35;color:white;font-size:0.7rem;'
+                    f'font-weight:700;padding:2px 8px;border-radius:20px">'
+                    f'🔜 EM BREVE</span>'
+                    f'{"<br><small style=color:#666>a partir de " + start + "</small>" if start else ""}',
                     unsafe_allow_html=True,
                 )
-            col_idx += 1
+            idx += 1
 
         if epic.get("updated_at"):
             st.caption(f"Atualizado: {fmt_data(epic['updated_at'])}")
         st.divider()
-    else:
-        # Tabela não existe ainda ou worker não rodou
-        st.info("🎁 Execute o SQL `epic_setup.sql` no Supabase e rode o worker "
-                "para ver os jogos gratuitos da Epic aqui.")
-        st.divider()
 
-    # ── Maiores descontos ─────────────────────────────────────────────────────
+    # Maiores descontos
     st.subheader("🔥 Maiores descontos agora")
     destaques = jogos_com_desconto(12)
-
     if destaques:
         cols = st.columns(6)
         for i, j in enumerate(destaques[:12]):
             with cols[i % 6]:
                 card_jogo(j, "dest", i)
     else:
-        st.info("Execute o worker para carregar os preços "
-                "(GitHub → Actions → update-prices → Run workflow).")
+        st.info("Execute o worker para carregar os preços.")
 
     st.divider()
 
-    # ── Mais baratos ──────────────────────────────────────────────────────────
+    # Mais baratos
     st.subheader("💰 Jogos mais baratos")
     plat_home = st.selectbox("Filtrar plataforma", PLATAFORMAS, key="plat_home")
     baratos   = jogos_mais_baratos(plat_home, 12)
-
     if baratos:
         cols = st.columns(6)
         for i, j in enumerate(baratos[:12]):
@@ -303,52 +373,44 @@ if aba == "🏠 Início":
                 card_jogo(j, "bar", i)
 
     st.divider()
-    total = total_jogos()
-    st.caption(f"📊 {total} jogos · Steam · Epic · Preços atualizados a cada 6h")
+    st.caption(f"📊 {total_jogos()} jogos · Steam · GOG · Epic · Preços atualizados a cada 6h")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ABA: CATÁLOGO
 # ══════════════════════════════════════════════════════════════════════════════
 elif aba == "📚 Catálogo":
-
     c1, c2, c3 = st.columns([2, 1, 1])
     filtro_nome = c1.text_input("🔍 Filtrar por nome", key="cat_nome",
                                 placeholder="ex.: Elden, Mario...")
     filtro_plat = c2.selectbox("Plataforma", PLATAFORMAS, key="cat_plat")
     ordenar     = c3.selectbox("Ordenar por",
-                               ["A-Z", "Menor preço", "Maior desconto"],
-                               key="cat_ord")
+                               ["A-Z", "Menor preço", "Maior desconto"], key="cat_ord")
 
     jogos = catalogo_completo(filtro_plat)
-
     if filtro_nome:
-        jogos = [j for j in jogos
-                 if filtro_nome.lower() in j.get("title", "").lower()]
-
+        jogos = [j for j in jogos if filtro_nome.lower() in j.get("title","").lower()]
     if ordenar == "Menor preço":
         jogos = sorted(jogos, key=lambda x: float(x.get("price") or 9999))
     elif ordenar == "Maior desconto":
-        jogos = sorted(jogos,
-                       key=lambda x: x.get("discount_percent") or 0, reverse=True)
+        jogos = sorted(jogos, key=lambda x: x.get("discount_percent") or 0, reverse=True)
 
     st.caption(f"{len(jogos)} jogos encontrados")
-
     if not jogos:
         st.warning("Nenhum jogo encontrado.")
         st.stop()
 
     for row_start in range(0, len(jogos), 6):
         cols = st.columns(6)
-        for ci, j in enumerate(jogos[row_start:row_start + 6]):
+        for ci, j in enumerate(jogos[row_start:row_start+6]):
             with cols[ci]:
-                card_jogo(j, "cat", row_start + ci)
+                card_jogo(j, "cat", row_start+ci)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ABA: BUSCAR / DETALHE
+# ABA: BUSCAR
 # ══════════════════════════════════════════════════════════════════════════════
-else:
+elif aba == "🔍 Buscar":
     jogo_pre = None
     if "jogo_id" in st.session_state:
         g = sb.table("games").select("*")\
@@ -357,8 +419,7 @@ else:
             jogo_pre = g[0]
 
     c1, c2, c3 = st.columns([3, 1, 0.7])
-    termo  = c1.text_input("🔍 Buscar jogo",
-                           placeholder="ex.: Elden Ring, Hades...",
+    termo  = c1.text_input("🔍 Buscar jogo", placeholder="ex.: Elden Ring...",
                            key="busca_termo")
     plat_b = c2.selectbox("Plataforma", PLATAFORMAS, key="busca_plat")
     c3.markdown("<br>", unsafe_allow_html=True)
@@ -369,8 +430,7 @@ else:
         jogo_pre = None
 
     if not termo and jogo_pre is None:
-        st.info("Digite o nome de um jogo ou navegue pelo **Catálogo** "
-                "e clique em 'Ver detalhes'.")
+        st.info("Digite o nome de um jogo ou navegue pelo **Catálogo** e clique em 'Ver detalhes'.")
         st.stop()
 
     if termo:
@@ -419,22 +479,20 @@ else:
                 diff     = preco - menor
                 diff_pct = (diff / menor * 100) if menor > 0 else 0
                 linhas.append({
-                    "":          MEDALHAS.get(i, f"{i+1}º"),
-                    "Loja":      o["store"],
-                    "Preço":     fmt_preco(preco),
-                    "Desconto":  f"{o['discount_percent']}%"
-                                 if o.get("discount_percent") else "-",
+                    "":         MEDALHAS.get(i, f"{i+1}º"),
+                    "Loja":     o["store"],
+                    "Preço":    fmt_preco(preco),
+                    "Desconto": f"{o['discount_percent']}%" if o.get("discount_percent") else "-",
                     "vs. menor": "✅ menor preço" if diff == 0
                                  else f"+R$ {diff:.2f} ({diff_pct:.0f}%)",
                 })
-            st.dataframe(pd.DataFrame(linhas),
-                         hide_index=True, use_container_width=True)
+            st.dataframe(pd.DataFrame(linhas), hide_index=True, use_container_width=True)
 
             for o in ofertas:
                 url   = link_afiliado(o["product_url"], o.get("affiliate_code"))
                 preco = float(o["price"])
                 loja  = o["store"]
-                emoji = "🟣" if "Epic" in loja else "🟦"
+                emoji = "🟣" if "Epic" in loja else ("🟩" if "GOG" in loja else "🟦")
                 label = (f"🆓 Jogar de graça na {loja}" if preco == 0
                          else f"{emoji} Comprar na {loja} — {fmt_preco(preco)}")
                 st.link_button(label, url, use_container_width=True)
@@ -473,3 +531,94 @@ else:
                            f"{jogo['title']} ficar abaixo de {fmt_preco(alvo)}.")
             else:
                 st.error("Informe um e-mail válido.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ABA: DASHBOARD
+# ══════════════════════════════════════════════════════════════════════════════
+else:
+    st.subheader("📊 Dashboard de métricas")
+    st.caption("Visão geral do GamePrice Brasil em tempo real.")
+
+    # ── Métricas principais ───────────────────────────────────────────────────
+    m = metricas_gerais()
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("🎮 Jogos no catálogo",  f"{m['jogos']:,}")
+    c2.metric("💰 Preços coletados",   f"{m['precos']:,}")
+    c3.metric("🏪 Lojas integradas",   f"{m['lojas']}")
+    c4.metric("🔔 Alertas ativos",     f"{m['alertas']}")
+
+    st.divider()
+
+    # ── Evolução do banco de preços ───────────────────────────────────────────
+    st.subheader("📈 Histórico de coletas")
+    evolucao = evolucao_catalogo()
+    if evolucao:
+        df_ev = pd.DataFrame(evolucao)
+        df_ev["data"] = pd.to_datetime(df_ev["data"])
+        c1, c2 = st.columns(2)
+        with c1:
+            st.caption("Coletas por dia")
+            st.bar_chart(df_ev.set_index("data")["coletas"])
+        with c2:
+            st.caption("Total acumulado de preços")
+            st.line_chart(df_ev.set_index("data")["acumulado"])
+    else:
+        st.info("Dados disponíveis após os primeiros ciclos do worker.")
+
+    st.divider()
+
+    # ── Ofertas por loja ──────────────────────────────────────────────────────
+    col_a, col_b = st.columns(2)
+
+    with col_a:
+        st.subheader("🏪 Ofertas por loja")
+        lojas = precos_por_loja()
+        if lojas:
+            df_l = pd.DataFrame(lojas).set_index("loja")
+            st.bar_chart(df_l["ofertas"])
+            st.dataframe(df_l, use_container_width=True)
+        else:
+            st.info("Sem dados ainda.")
+
+    with col_b:
+        st.subheader("🔥 Maiores descontos ativos")
+        quedas = maiores_quedas_de_preco()
+        if quedas:
+            for q in quedas[:8]:
+                pct   = q.get("discount_percent", 0)
+                preco = float(q.get("price") or 0)
+                op    = float(q.get("old_price") or preco)
+                st.markdown(
+                    f"**{q.get('title','?')}** · {q.get('store','')}"
+                    f"  \n~~{fmt_preco(op)}~~ → **{fmt_preco(preco)}** "
+                    f"<span style='color:#e94560;font-weight:700'>-{pct}%</span>",
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.info("Sem dados de quedas de preço ainda.")
+
+    st.divider()
+
+    # ── Jogos com mais histórico ──────────────────────────────────────────────
+    st.subheader("📚 Jogos com mais histórico de preço")
+    historico_rank = jogos_com_mais_historico()
+    if historico_rank:
+        df_h = pd.DataFrame(historico_rank)
+        st.dataframe(df_h, hide_index=True, use_container_width=True)
+    else:
+        st.info("Dados disponíveis após alguns ciclos do worker.")
+
+    st.divider()
+
+    # ── Epic free games no dashboard ──────────────────────────────────────────
+    st.subheader("🎁 Status Epic Games")
+    epic = epic_free_games()
+    c1, c2 = st.columns(2)
+    c1.metric("Grátis agora", len(epic.get("current", [])))
+    c2.metric("Grátis em breve", len(epic.get("next", [])))
+    if epic.get("current"):
+        st.caption("Jogos gratuitos: " +
+                   " · ".join(g["title"] for g in epic["current"]))
+    if epic.get("updated_at"):
+        st.caption(f"Última atualização: {fmt_data(epic['updated_at'])}")

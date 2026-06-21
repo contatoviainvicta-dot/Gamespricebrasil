@@ -142,12 +142,14 @@ def run() -> None:
             time.sleep(0.2)  # Pausa entre lotes para não sobrecarregar Supabase
 
     # Resumo final
-    total_banco = len(sb.table("games").select("id").execute().data)
+    total_jogos  = len(sb.table("games").select("id").execute().data)
+    total_ofertas = len(sb.table("game_store_offers").select("id").execute().data)
     print(f"\n{'='*50}")
     print(f"Seed massivo concluído!")
     print(f"  Novos inseridos: {total_novos}")
     print(f"  Já existiam:     {total_skip}")
-    print(f"  Total no banco:  {total_banco} jogos")
+    print(f"  Total no banco:  {total_jogos:,} jogos")
+    print(f"  Total ofertas:   {total_ofertas:,} ofertas")
     print(f"{'='*50}")
     print(f"\nPróximo passo: rode o workflow update-prices para buscar os preços")
 

@@ -2,13 +2,13 @@ name: update-prices
 
 on:
   schedule:
-    - cron: "0 */6 * * *"   # a cada 6 horas
+    - cron: "0 */6 * * *"
   workflow_dispatch:
 
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     defaults:
       run:
         working-directory: gameprice-streamlit
@@ -22,14 +22,21 @@ jobs:
       - name: Instalar dependencias
         run: pip install -r requirements.txt
 
-      - name: Descobrir jogos novos (SteamSpy + Steam Featured)
+      - name: Descobrir jogos novos (SteamSpy)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python worker/discover_games.py
 
-      - name: Atualizar precos
+      - name: Atualizar precos Steam
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python worker/update_prices.py
+
+      - name: Atualizar precos ITAD (GOG + Humble) + Epic free
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ITAD_API_KEY: ${{ secrets.ITAD_API_KEY }}
+        run: python worker/update_itad_only.py

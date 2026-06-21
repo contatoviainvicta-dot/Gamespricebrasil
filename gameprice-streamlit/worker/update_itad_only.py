@@ -110,6 +110,7 @@ def run() -> None:
 
         # Processar
         rows = []
+        url_updates = {}
         for ext_id in lote_ext:
             parts = ext_id.split("|", 2)
             if len(parts) != 3:
@@ -139,14 +140,27 @@ def run() -> None:
                     "discount_percent": cut,
                     "available":        True,
                 })
+                url_real = d.get("url", "")
+                if url_real:
+                    url_updates[ext_id] = url_real
                 print(f"  OK  {shop_slug:<12} {ext_id[:40]} R${amount:.2f} ({cut}%)")
                 break
 
         if rows:
             for start in range(0, len(rows), 20):
                 sb.table("prices").insert(rows[start:start+20]).execute()
+
+        # Atualiza product_url das ofertas com a URL real do deal
+        for ext_id, url_real in url_updates.items():
+            if url_real and "gog.com" in url_real:
+                try:
+                    sb.table("game_store_offers")                      .update({"product_url": url_real})                      .eq("external_id", ext_id).execute()
+                except Exception:
+                    pass
+
         total += len(rows)
         lote_ext = []
+        url_updates = {}
         time.sleep(0.5)
 
     print(f"\nITAD: {total} preços gravados")

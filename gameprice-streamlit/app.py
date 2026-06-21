@@ -223,54 +223,62 @@ def get_price_history(game_id: str) -> list[dict]:
 
 
 def render_price_bars(hist_data: list[dict], preco_atual):
-    """Renderiza grafico de barras verticais estilo ITAD."""
+    """Grafico de barras verticais estilo ITAD."""
     import pandas as pd
     df = pd.DataFrame(hist_data)
     df["captured_at"] = pd.to_datetime(df["captured_at"], utc=True)
     df["price"] = df["price"].astype(float)
     df["dia"] = df["captured_at"].dt.date
     df_day = df.groupby("dia")["price"].min().reset_index().tail(90)
-    if df_day.empty:
-        st.caption("Sem historico suficiente.")
+    if df_day.empty or len(df_day) < 2:
+        # Fallback: line chart nativo
+        st.line_chart(df_day.set_index('dia')['price'] if not df_day.empty else {})
         return
     preco_max = df_day['price'].max()
     preco_min = df_day['price'].min()
     preco_at  = float(preco_atual or preco_min)
-    n    = len(df_day)
-    w    = max(4, min(8, 600 // max(n, 1)))
-    gap  = 1
-    h    = 60
-    tot_w = n * (w + gap)
+    n = len(df_day)
+    # Largura total fixa: 600px, distribuída entre as barras
+    tot_w = 600
+    bar_w = max(2, (tot_w - n) // n)  # largura de cada barra
+    gap   = 1
+    h     = 60
+    real_w = n * (bar_w + gap)
     bars = ''
     for idx, (_, row) in enumerate(df_day.iterrows()):
         p   = row['price']
-        bh  = max(4, int(h * (1 - (p - preco_min) / (preco_max - preco_min + .01) * .7)))
+        pct = (p - preco_min) / (preco_max - preco_min + .01)
+        bh  = max(3, int(h * 0.15 + h * 0.85 * (1 - pct)))
         by  = h - bh
-        x   = idx * (w + gap)
+        x   = idx * (bar_w + gap)
         if p <= preco_min * 1.05:  cor = '#43a047'
         elif p <= preco_min * 1.5: cor = '#fb8c00'
         else:                       cor = '#e53935'
-        bars += "<rect x='" + str(x) + "' y='" + str(by) + "' width='" + str(w) + "' height='" + str(bh) + "' fill='" + cor + "' rx='1'/>"
+        bars += "<rect x='" + str(x) + "' y='" + str(by) + "' width='" + str(bar_w) + "' height='" + str(bh) + "' fill='" + cor + "' rx='1'/>"
     d0 = str(df_day['dia'].iloc[0])
     d1 = str(df_day['dia'].iloc[-1])
+    mn_s = 'R$ ' + str(round(preco_min, 2))
+    mx_s = 'R$ ' + str(round(preco_max, 2))
+    mid  = str(real_w // 2)
     svg = (
-        '<svg viewBox="0 0 ' + str(tot_w) + ' ' + str(h+20) + '" xmlns="http://www.w3.org/2000/svg"'
-        ' style="width:100%;max-width:600px;height:80px">'
-        '<rect width="' + str(tot_w) + '" height="' + str(h) + '" fill="#f5f7f9" rx="4"/>'
+        '<svg viewBox="0 0 ' + str(real_w) + ' ' + str(h + 22) + '"'
+        ' xmlns="http://www.w3.org/2000/svg" style="width:100%;height:90px">'
+        '<rect width="' + str(real_w) + '" height="' + str(h) + '" fill="#f0f4f7" rx="4"/>'
         + bars +
-        '<text x="0" y="' + str(h+14) + '" font-size="9" fill="#90a4b0">' + d0 + '</text>'
-        '<text x="' + str(tot_w) + '" y="' + str(h+14) + '" font-size="9" fill="#90a4b0" text-anchor="end">' + d1 + '</text>'
-        '<text x="' + str(tot_w//2) + '" y="' + str(h+14) + '" font-size="9" fill="#546e7a" text-anchor="middle">'
-        'Min: R$ ' + str(round(preco_min,2)) + ' · Max: R$ ' + str(round(preco_max,2)) + '</text>'
+        '<text x="2" y="' + str(h+13) + '" font-size="8" fill="#90a4b0">' + d0 + '</text>'
+        '<text x="' + str(real_w-2) + '" y="' + str(h+13) + '" font-size="8" fill="#90a4b0" text-anchor="end">' + d1 + '</text>'
+        '<text x="' + mid + '" y="' + str(h+13) + '" font-size="8" fill="#37474f" text-anchor="middle">'
+        'Min: ' + mn_s + '   Max: ' + mx_s + '</text>'
         '</svg>'
     )
     st.markdown(svg, unsafe_allow_html=True)
     st.markdown(
-        '<div style="display:flex;gap:12px;font-size:.72rem;color:#546e7a;margin-top:2px">'
-        '<span><span style="color:#43a047">■</span> Minimo</span>'
-        '<span><span style="color:#fb8c00">■</span> Medio</span>'
+        '<div style="display:flex;gap:14px;font-size:.7rem;color:#607d8b;margin-top:2px">'
+        '<span><span style="color:#43a047">■</span> Mínimo</span>'
+        '<span><span style="color:#fb8c00">■</span> Médio</span>'
         '<span><span style="color:#e53935">■</span> Alto</span>'
-        '</div>', unsafe_allow_html=True
+        '</div>',
+        unsafe_allow_html=True
     )
 @st.cache_data(ttl=3600)
 def get_steam_description(game_id: str) -> dict:

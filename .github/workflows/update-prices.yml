@@ -8,32 +8,22 @@ on:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: gameprice-streamlit
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: Instalar dependencias
         run: pip install -r requirements.txt
-
-      - name: Descobrir jogos novos (SteamSpy)
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: python worker/discover_games.py
-
       - name: Atualizar precos Steam
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python worker/update_prices.py
-
       - name: Atualizar precos ITAD (GOG + Humble) + Epic free
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

@@ -12,7 +12,7 @@ KEY = os.environ["SUPABASE_SERVICE_KEY"]
 
 # Limite de jogos por execução para caber em <6h do GitHub Actions
 # 2500 jogos × ~1.3s = ~55min. O resto é atualizado no próximo ciclo.
-MAX_POR_CICLO = int(os.environ.get("MAX_GAMES", "1500"))
+MAX_POR_CICLO = int(os.environ.get("MAX_GAMES", "1200"))
 
 
 def fetch_all_offers(sb, store_slug: str) -> list:
@@ -54,14 +54,11 @@ def fetch_steam_batch(appids: list[str], _retry: int = 0) -> dict:
             headers={"User-Agent": "Mozilla/5.0"},
         )
         if r.status_code == 429:
-            if _retry < 3:
-                espera = 30 * (_retry + 1)   # 30s, 60s, 90s
-                print(f"  [429] Steam limitou — aguardando {espera}s "
-                      f"(tentativa {_retry+1}/3)...")
-                time.sleep(espera)
+            if _retry < 1:
+                print(f"  [429] Steam limitou — pausa de 20s...")
+                time.sleep(20)
                 return fetch_steam_batch(appids, _retry + 1)
             else:
-                print(f"  [429] desistindo de {appids} após 3 tentativas")
                 return {}
         r.raise_for_status()
         return r.json()

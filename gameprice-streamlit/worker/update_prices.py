@@ -12,7 +12,7 @@ KEY = os.environ["SUPABASE_SERVICE_KEY"]
 
 # Limite de jogos por execução para caber em <6h do GitHub Actions
 # 2500 jogos × ~1.3s = ~55min. O resto é atualizado no próximo ciclo.
-MAX_POR_CICLO = int(os.environ.get("MAX_GAMES", "2500"))
+MAX_POR_CICLO = int(os.environ.get("MAX_GAMES", "1500"))
 
 
 def fetch_all_offers(sb, store_slug: str) -> list:
@@ -41,8 +41,8 @@ def fetch_all_offers(sb, store_slug: str) -> list:
     return todas
 
 
-def fetch_steam_batch(appids: list[str]) -> dict:
-    """Busca preços de até 100 appids de uma vez via API de preços da Steam."""
+def fetch_steam_batch(appids: list[str], _retry: int = 0) -> dict:
+    """Busca preço de um appid. Em caso de 429, espera e tenta de novo."""
     if not appids:
         return {}
     try:
@@ -53,6 +53,16 @@ def fetch_steam_batch(appids: list[str]) -> dict:
             timeout=30,
             headers={"User-Agent": "Mozilla/5.0"},
         )
+        if r.status_code == 429:
+            if _retry < 3:
+                espera = 30 * (_retry + 1)   # 30s, 60s, 90s
+                print(f"  [429] Steam limitou — aguardando {espera}s "
+                      f"(tentativa {_retry+1}/3)...")
+                time.sleep(espera)
+                return fetch_steam_batch(appids, _retry + 1)
+            else:
+                print(f"  [429] desistindo de {appids} após 3 tentativas")
+                return {}
         r.raise_for_status()
         return r.json()
     except Exception as e:
@@ -99,7 +109,7 @@ def run() -> None:
             checked_ids.append(o["id"])
         if i % 100 == 0:
             print(f"  [{i}/{len(offers)}] {len(rows)} preços coletados")
-        time.sleep(1.3)
+        time.sleep(2.0)
 
     # Gravar preços em lotes
     if rows:

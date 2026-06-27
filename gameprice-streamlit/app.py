@@ -872,11 +872,15 @@ elif pag=="🎮 Consoles":
             st.info("Nenhuma oferta cadastrada ainda. Use a aba ⚙️ Admin para adicionar.")
         else:
             # Filtro por categoria
-            cat = st.radio("Categoria", ["Tudo","🎮 Games","🎧 Acessórios"],
+            cat = st.radio("Categoria", ["Tudo","🎮 Games","👾 Retrô","🕹️ Consoles","🎧 Acessórios"],
                            horizontal=True, label_visibility="collapsed")
             filtrados = ofertas_ml
             if cat == "🎮 Games":
                 filtrados = [o for o in ofertas_ml if o.get("categoria")=="game"]
+            elif cat == "👾 Retrô":
+                filtrados = [o for o in ofertas_ml if o.get("categoria")=="retro"]
+            elif cat == "🕹️ Consoles":
+                filtrados = [o for o in ofertas_ml if o.get("categoria")=="console"]
             elif cat == "🎧 Acessórios":
                 filtrados = [o for o in ofertas_ml if o.get("categoria")=="acessorio"]
             st.caption(str(len(filtrados))+" ofertas")
@@ -886,7 +890,7 @@ elif pag=="🎮 Consoles":
                     if o.get("imagem_url"):
                         st.image(o["imagem_url"], use_container_width=True)
                     else:
-                        icone = "🎮" if o.get("categoria")=="game" else "🎧"
+                        icone = {"game":"🎮","retro":"👾","console":"🕹️"}.get(o.get("categoria"),"🎧")
                         plat = o.get("plataforma") or "ML"
                         st.markdown(
                             "<div style='aspect-ratio:1;background:linear-gradient(135deg,#fff159,#ffe600);"
@@ -931,9 +935,11 @@ elif pag=="⚙️ Admin":
         with col1:
             titulo = st.text_input("Título do produto", key="ml_tit",
                                    placeholder="ex.: Final Fantasy VII Rebirth PS5")
-            categoria = st.selectbox("Categoria", ["game","acessorio"], key="ml_cat")
+            categoria = st.selectbox("Categoria", ["game","acessorio","retro","console"], key="ml_cat")
             plataforma = st.selectbox("Plataforma",
-                                      ["PS5","PS4","XBOX","SWITCH","PC","Multi","-"], key="ml_plat")
+                                      ["PS5","PS4","PS3","PS2","PS1","XBOX","XBOX 360",
+                                       "SWITCH","SNES","NES","MEGA DRIVE","NINTENDO 64",
+                                       "GAMECUBE","GAME BOY","PC","Multi","-"], key="ml_plat")
         with col2:
             preco = st.number_input("Preço (R$)", min_value=0.0, step=10.0, key="ml_preco")
             comissao = st.number_input("Comissão (%)", min_value=0, max_value=30,

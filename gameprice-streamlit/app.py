@@ -772,6 +772,27 @@ elif pag=="⚙️ Admin":
                              placeholder="MLB1234567 (opcional)")
         imagem = st.text_input("URL da imagem (opcional)", key="ml_img")
 
+        # Vínculo opcional a um jogo do catálogo
+        st.markdown("**🔗 Vincular a um jogo do catálogo (opcional)**")
+        st.caption("Se for um game físico que também existe no catálogo digital, "
+                   "vincule para aparecer na página do jogo junto das outras lojas.")
+        busca_jogo = st.text_input("Buscar jogo no catálogo", key="ml_busca_jogo",
+                                   placeholder="ex.: Final Fantasy, Witcher...")
+        game_id_vinculo = None
+        if busca_jogo:
+            resultados = buscar(busca_jogo)
+            if resultados:
+                opcoes = {"— não vincular —": None}
+                for r in resultados[:20]:
+                    opcoes[r["title"]+" ("+r["platform"]+")"] = r["id"]
+                escolha = st.selectbox("Selecione o jogo correspondente",
+                                       list(opcoes.keys()), key="ml_sel_jogo")
+                game_id_vinculo = opcoes[escolha]
+                if game_id_vinculo:
+                    st.success("Será vinculado a: "+escolha)
+            else:
+                st.caption("Nenhum jogo encontrado com esse nome.")
+
         if st.button("💾 Salvar oferta", type="primary"):
             if not titulo or not url:
                 st.error("Título e link são obrigatórios.")
@@ -782,9 +803,11 @@ elif pag=="⚙️ Admin":
                     "preco": preco if preco>0 else None,
                     "comissao_pct": comissao, "afiliado_url": url,
                     "ml_id": ml_id or None, "imagem_url": imagem or None,
+                    "game_id": game_id_vinculo,
                 }
                 if add_ml_oferta(dados):
-                    st.success("Oferta salva! ✓")
+                    st.success("Oferta salva! ✓" +
+                               (" (vinculada ao jogo)" if game_id_vinculo else ""))
                     st.rerun()
 
         st.divider()
@@ -796,8 +819,9 @@ elif pag=="⚙️ Admin":
             for o in ofertas:
                 c1,c2 = st.columns([5,1])
                 with c1:
+                    vinc = " · 🔗 vinculado" if o.get("game_id") else ""
                     st.markdown("**"+o["titulo_ml"]+"** — "+R(o.get("preco"))
-                               +" · "+str(o.get("comissao_pct",0))+"%")
+                               +" · "+str(o.get("comissao_pct",0))+"%"+vinc)
                     st.caption(o["afiliado_url"])
                 with c2:
                     if st.button("🗑️", key="mldel_"+o["id"]):

@@ -592,7 +592,7 @@ def del_ml_oferta(oferta_id: str) -> bool:
 # ── SIDEBAR ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("<div style='font-size:1.1rem;font-weight:700;color:#fff;padding:8px 0 4px'>🎮 GamePrice Brasil</div>",unsafe_allow_html=True)
-    pag=st.radio("p",["🏠 Deals","🔍 Buscar","📚 Catálogo","🎮 Consoles","❤️ Wishlist","🏆 Históricos","📊 Stats","⚙️ Admin"],label_visibility="collapsed")
+    pag=st.radio("p",["🏠 Deals","🔍 Buscar","📚 Catálogo","🎮 Mercado Livre","❤️ Wishlist","🏆 Históricos","📊 Stats","⚙️ Admin"],label_visibility="collapsed")
     st.markdown("---")
     st.markdown("<div style='font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px'>🏪 Shop</div>",unsafe_allow_html=True)
     dots="".join(["<div style='padding:3px 0;font-size:.82rem'><span style='display:inline-block;width:8px;height:8px;border-radius:50%;background:"+LOJA_DOTS.get(l,"#888")+";margin-right:7px;vertical-align:middle'></span>"+l+"</div>" for l in list(LOJA_DOTS.keys())])
@@ -772,17 +772,20 @@ elif pag=="📚 Catálogo":
         nm=c1.text_input("🔍 Nome",key="cn",placeholder="ex.: Hades, Elden...")
         pt=c2.selectbox("Plataforma",PLAT,key="cp")
         od=c3.selectbox("Ordenar",["A-Z","Menor preço","Maior desconto"],key="co")
-        q=DB.table("v_game_offers").select("game_id,title,platform,cover_url,price,discount_percent").order("title").limit(500)
+        q=DB.table("v_game_offers").select("game_id,title,platform,cover_url,price,discount_percent")
+        # Filtrar no banco (antes do limite) para a busca funcionar em todo o catálogo
+        if nm: q=q.ilike("title",f"%{nm}%")
         if pt!="Todas": q=q.eq("platform",pt)
-        rows=q.execute().data
+        rows=q.order("title").limit(500).execute().data
         vis={}
         for r in rows:
             g=r["game_id"]; p=float(r.get("price") or 9999)
             if g not in vis or p<float(vis[g].get("price") or 9999): vis[g]=r
         jc=sorted(vis.values(),key=lambda x:x.get("title",""))
-        if nm: jc=[j for j in jc if nm.lower() in j.get("title","").lower()]
         if od=="Menor preço": jc=sorted(jc,key=lambda x:float(x.get("price") or 9999))
         elif od=="Maior desconto": jc=sorted(jc,key=lambda x:x.get("discount_percent") or 0,reverse=True)
+        if not jc:
+            st.info("Nenhum jogo encontrado. Tente outro termo." if nm else "Catálogo vazio.")
         st.caption(str(len(jc))+" jogos")
         for rs in range(0,len(jc),5):
             cols=st.columns(5)
@@ -861,11 +864,11 @@ elif pag=="🏆 Históricos":
                         st.caption("-"+str(h["discount_max"])+"%")
                 st.divider()
 
-elif pag=="🎮 Consoles":
+elif pag=="🎮 Mercado Livre":
     _,C,_=st.columns(mg)
     with C:
-        st.subheader("🎮 Games & Acessórios — Mercado Livre")
-        st.caption("Ofertas de jogos físicos de console e acessórios gamer")
+        st.subheader("🎮 Mercado Livre — Físico")
+        st.caption("Jogos, consoles, acessórios e clássicos retrô")
         ofertas_ml = get_ml_ofertas()
         if not ofertas_ml:
             st.info("Nenhuma oferta cadastrada ainda. Use a aba ⚙️ Admin para adicionar.")

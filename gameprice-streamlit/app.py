@@ -733,7 +733,6 @@ elif pag=="🔍 Buscar":
                 with mc2:
                     st.markdown("**"+m["titulo_ml"]+"**")
                     meta=m.get("plataforma","") or ""
-                    if m.get("comissao_pct"): meta+=" · 💰 "+str(m["comissao_pct"])+"%"
                     st.caption(meta)
                 with mc3:
                     if m.get("preco"): st.markdown("**"+R(m["preco"])+"**")
@@ -903,7 +902,9 @@ elif pag=="🎮 Consoles":
                     st.markdown("**"+o["titulo_ml"]+"**")
                     meta = []
                     if o.get("plataforma"): meta.append(o["plataforma"])
-                    if o.get("comissao_pct"): meta.append("💰 "+str(o["comissao_pct"])+"% comissão")
+                    cat_lbl = {"retro":"👾 Retrô","console":"🕹️ Console",
+                               "acessorio":"🎧 Acessório"}.get(o.get("categoria"))
+                    if cat_lbl: meta.append(cat_lbl)
                     st.caption(" · ".join(meta))
                 with c3:
                     if o.get("preco"):

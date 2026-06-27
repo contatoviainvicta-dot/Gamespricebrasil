@@ -43,6 +43,8 @@ st.markdown("""<style>
       border-left:3px solid #3a8a3a;padding-left:8px;margin:12px 0 8px; }
 </style>""", unsafe_allow_html=True)
 
+APP_URL = "https://azaxme2muk9qxnbsapmzag.streamlit.app"
+
 PLAT  = ["Todas","PC","PS4","PS5","XBOX","SWITCH"]
 LOJAS = ["Todas","Steam","GOG","Humble Store","Epic Games","Nuuvem","Fanatical"]
 MED   = {0:"🥇",1:"🥈",2:"🥉"}
@@ -376,6 +378,22 @@ def detalhe(jg):
                 add_to_wishlist(sid, jg["id"])
                 st.success("Adicionado à wishlist!")
                 st.rerun()
+        # Compartilhamento
+        _ofs_sh = [o for o in get_ofertas(jg["id"]) if o.get("price") is not None]
+        if _ofs_sh:
+            _mn = min(float(o["price"]) for o in _ofs_sh)
+            _loja = min(_ofs_sh, key=lambda o: float(o["price"])).get("store","")
+            import urllib.parse
+            txt = (f"🎮 {jg['title']} ({jg['platform']})\n"
+                   f"💰 {R(_mn)} na {_loja}\n"
+                   f"🔗 Veja no GamePrice Brasil: {APP_URL}")
+            wpp = "https://wa.me/?text=" + urllib.parse.quote(txt)
+            tg  = "https://t.me/share/url?url=" + urllib.parse.quote(APP_URL) + "&text=" + urllib.parse.quote(txt)
+            with st.expander("📤 Compartilhar oferta"):
+                st.link_button("📱 WhatsApp", wpp, use_container_width=True)
+                st.link_button("✈️ Telegram", tg, use_container_width=True)
+                st.code(txt, language=None)
+                st.caption("Copie o texto acima para compartilhar em qualquer lugar")
     with ci:
         if not ofs: st.warning("Sem preços ainda."); return
         mn=float(ofs[0]["price"]); oids=[o["offer_id"] for o in ofs]

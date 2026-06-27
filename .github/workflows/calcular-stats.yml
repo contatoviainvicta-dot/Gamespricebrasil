@@ -1,0 +1,26 @@
+name: calcular-stats
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # 3h Brasília (após ciclos de preço)
+  workflow_dispatch:
+
+jobs:
+  stats:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: gameprice-streamlit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+      - name: Calcular estatísticas de preço
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python worker/calcular_stats.py

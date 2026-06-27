@@ -87,6 +87,42 @@ def buscar(t,p="Todas"):
     return q.order("title").limit(100).execute().data
 
 @st.cache_data(ttl=300)
+def buscar_rico(t, plat="Todas", preco_max=None, desc_min=0, ordenar="Relevância"):
+    """Busca com preço, desconto e ordenação — para resultados visuais."""
+    if not t:
+        return []
+    rows = (DB.table("v_game_offers")
+            .select("game_id,title,platform,cover_url,price,discount_percent,store")
+            .ilike("title", f"%{t}%").limit(300).execute().data)
+    # Agrupar por jogo, manter menor preço
+    vis = {}
+    for r in rows:
+        if plat != "Todas" and r.get("platform") != plat:
+            continue
+        g = r["game_id"]
+        p = float(r.get("price") or 9999)
+        if g not in vis or p < float(vis[g].get("price") or 9999):
+            vis[g] = r
+    jogos = list(vis.values())
+    # Filtros
+    if preco_max:
+        jogos = [j for j in jogos if float(j.get("price") or 9999) <= preco_max]
+    if desc_min:
+        jogos = [j for j in jogos if (j.get("discount_percent") or 0) >= desc_min]
+    # Ordenação
+    if ordenar == "Menor preço":
+        jogos.sort(key=lambda x: float(x.get("price") or 9999))
+    elif ordenar == "Maior desconto":
+        jogos.sort(key=lambda x: x.get("discount_percent") or 0, reverse=True)
+    elif ordenar == "A-Z":
+        jogos.sort(key=lambda x: x.get("title",""))
+    else:  # Relevância: nome começando com o termo primeiro
+        tl = t.lower()
+        jogos.sort(key=lambda x: (not x.get("title","").lower().startswith(tl),
+                                  x.get("title","")))
+    return jogos
+
+@st.cache_data(ttl=300)
 def get_ofertas(gid):
     return DB.table("v_game_offers").select("*").eq("game_id",gid).execute().data
 
@@ -638,20 +674,57 @@ elif pag=="🔍 Buscar":
         if "jogo_id" in st.session_state:
             r=DB.table("games").select("*").eq("id",st.session_state["jogo_id"]).execute().data
             if r: jp=r[0]
-        c1,c2,c3=st.columns([3,1,.7])
-        t=c1.text_input("🔍 Nome do jogo",placeholder="ex.: Elden Ring, Witcher...",key="q")
-        pb=c2.selectbox("Plataforma",PLAT,key="pb")
-        c3.markdown("<br>",unsafe_allow_html=True); c3.button("Buscar",type="primary",use_container_width=True)
-        if t: st.session_state.pop("jogo_id",None); jp=None
-        if not t and jp is None:
-            st.info("Digite o nome de um jogo ou clique em **Ver detalhes**."); st.stop()
-        if t:
-            js=buscar(t,pb)
-            if not js: st.warning("Nenhum jogo."); st.stop()
-            tit={j["title"]+" ("+j["platform"]+")":j for j in js}
-            jg=js[0] if len(js)==1 else tit[st.selectbox("Selecione",list(tit.keys()))]
-        else: jg=jp
-        st.divider(); detalhe(jg)
+
+        # Se há jogo selecionado, mostra o detalhe
+        if jp is not None:
+            if st.button("← Voltar para busca"):
+                st.session_state.pop("jogo_id",None)
+                st.rerun()
+            st.divider(); detalhe(jp); st.stop()
+
+        t=st.text_input("🔍 Buscar jogo",placeholder="ex.: Elden Ring, Witcher, Hades...",key="q")
+
+        # Filtros
+        f1,f2,f3=st.columns(3)
+        pb=f1.selectbox("Plataforma",PLAT,key="pb")
+        ord_busca=f2.selectbox("Ordenar",["Relevância","Menor preço","Maior desconto","A-Z"],key="ord_b")
+        faixa=f3.selectbox("Preço",["Qualquer","Até R$ 10","Até R$ 25","Até R$ 50","Até R$ 100"],key="faixa_b")
+
+        if not t:
+            st.info("Digite o nome de um jogo para começar.")
+            st.stop()
+
+        pmax=None
+        if faixa!="Qualquer": pmax=float(faixa.replace("Até R$ ",""))
+        resultados=buscar_rico(t,pb,pmax,0,ord_busca)
+
+        if not resultados:
+            st.warning("Nenhum jogo encontrado com esses filtros.")
+            st.stop()
+
+        st.caption(str(len(resultados))+" resultado(s)")
+        # Cards visuais clicáveis
+        for j in resultados[:40]:
+            cc1,cc2,cc3=st.columns([1,3,1.2])
+            with cc1:
+                if j.get("cover_url"):
+                    st.image(j["cover_url"],use_container_width=True)
+            with cc2:
+                st.markdown("**"+j["title"]+"**")
+                meta=j.get("platform","")
+                if j.get("store"): meta+=" · "+j["store"]
+                st.caption(meta)
+            with cc3:
+                pc=j.get("discount_percent") or 0
+                if pc>0:
+                    st.markdown("<span style='background:#3a8a3a;color:#fff;font-size:.7rem;"
+                                "padding:1px 5px;border-radius:3px'>-"+str(pc)+"%</span>",
+                                unsafe_allow_html=True)
+                st.markdown("**"+R(j.get("price"))+"**")
+                if st.button("Ver",key="busca_"+j["game_id"],use_container_width=True):
+                    st.session_state["jogo_id"]=j["game_id"]
+                    st.rerun()
+            st.divider()
 
 elif pag=="📚 Catálogo":
     _,C,_=st.columns(mg)

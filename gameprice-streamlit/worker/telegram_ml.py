@@ -74,7 +74,7 @@ def run():
         img    = p.get("imagem_url")
         cat    = p.get("categoria", "game")
 
-        emoji = "🎮" if cat == "game" else "🎧"
+        emoji = {"game":"🎮","retro":"👾","console":"🕹️"}.get(cat, "🎧")
         preco_txt = f"💰 <b>R$ {float(preco):.2f}</b>\n" if preco else ""
         plat_txt  = f"🕹️ {plat}\n" if plat else ""
 

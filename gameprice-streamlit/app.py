@@ -86,6 +86,20 @@ def buscar(t,p="Todas"):
     if p!="Todas": q=q.eq("platform",p)
     return q.order("title").limit(100).execute().data
 
+@st.cache_data(ttl=120)
+def buscar_ml(t):
+    """Busca produtos ML (afiliados) por nome."""
+    if not t:
+        return []
+    try:
+        return (DB.table("ml_afiliados")
+                .select("*").eq("ativo", True)
+                .ilike("titulo_ml", f"%{t}%")
+                .order("comissao_pct", desc=True)
+                .limit(20).execute().data)
+    except Exception:
+        return []
+
 @st.cache_data(ttl=300)
 def buscar_rico(t, plat="Todas", preco_max=None, desc_min=0, ordenar="Relevância"):
     """Busca com preço, desconto e ordenação — para resultados visuais."""
@@ -697,11 +711,37 @@ elif pag=="🔍 Buscar":
         pmax=None
         if faixa!="Qualquer": pmax=float(faixa.replace("Até R$ ",""))
         resultados=buscar_rico(t,pb,pmax,0,ord_busca)
+        resultados_ml=buscar_ml(t)
 
-        if not resultados:
+        if not resultados and not resultados_ml:
             st.warning("Nenhum jogo encontrado com esses filtros.")
             st.stop()
 
+        # Produtos do Mercado Livre (físicos) — aparecem no topo
+        if resultados_ml:
+            st.markdown("**🎮 Mercado Livre (físico)**")
+            for m in resultados_ml:
+                mc1,mc2,mc3=st.columns([1,3,1.2])
+                with mc1:
+                    if m.get("imagem_url"):
+                        st.image(m["imagem_url"],use_container_width=True)
+                    else:
+                        ic="🎮" if m.get("categoria")=="game" else "🎧"
+                        st.markdown("<div style='aspect-ratio:1;background:linear-gradient(135deg,#fff159,#ffe600);"
+                                    "border-radius:8px;display:flex;align-items:center;justify-content:center;"
+                                    "font-size:2rem'>"+ic+"</div>",unsafe_allow_html=True)
+                with mc2:
+                    st.markdown("**"+m["titulo_ml"]+"**")
+                    meta=m.get("plataforma","") or ""
+                    if m.get("comissao_pct"): meta+=" · 💰 "+str(m["comissao_pct"])+"%"
+                    st.caption(meta)
+                with mc3:
+                    if m.get("preco"): st.markdown("**"+R(m["preco"])+"**")
+                    st.link_button("🛒 Comprar",m["afiliado_url"],use_container_width=True,type="primary")
+                st.divider()
+
+        if resultados:
+            st.markdown("**💻 Jogos digitais**")
         st.caption(str(len(resultados))+" resultado(s)")
         # Cards visuais clicáveis
         for j in resultados[:40]:

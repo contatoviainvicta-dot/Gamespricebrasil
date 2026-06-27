@@ -713,6 +713,16 @@ elif pag=="🎮 Consoles":
                 with c1:
                     if o.get("imagem_url"):
                         st.image(o["imagem_url"], use_container_width=True)
+                    else:
+                        icone = "🎮" if o.get("categoria")=="game" else "🎧"
+                        plat = o.get("plataforma") or "ML"
+                        st.markdown(
+                            "<div style='aspect-ratio:1;background:linear-gradient(135deg,#fff159,#ffe600);"
+                            "border-radius:8px;display:flex;flex-direction:column;align-items:center;"
+                            "justify-content:center;text-align:center;padding:8px'>"
+                            "<div style='font-size:2.4rem'>"+icone+"</div>"
+                            "<div style='font-size:.7rem;font-weight:700;color:#2d3277;margin-top:4px'>"+plat+"</div>"
+                            "</div>", unsafe_allow_html=True)
                 with c2:
                     st.markdown("**"+o["titulo_ml"]+"**")
                     meta = []

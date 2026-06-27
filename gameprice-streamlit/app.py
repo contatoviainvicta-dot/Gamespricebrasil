@@ -327,6 +327,14 @@ def detalhe(jg):
         for o in ofs:
             pr=float(o["price"]); lb=("🆓 "+o["store"]+" — Grátis") if pr==0 else ("🛒 "+o["store"]+" — "+R(pr))
             st.link_button(lb,o.get("product_url","#"),use_container_width=True)
+        # Ofertas Mercado Livre vinculadas (console/físico)
+        ml_jogo = get_ml_por_jogo(jg["id"])
+        if ml_jogo:
+            st.markdown("**🎮 Também no Mercado Livre (físico):**")
+            for m in ml_jogo:
+                lbl = "🛒 "+m["titulo_ml"]
+                if m.get("preco"): lbl += " — "+R(m["preco"])
+                st.link_button(lbl, m["afiliado_url"], use_container_width=True)
         st.markdown("#### 📈 Histórico")
         mp={o["offer_id"]:o["store"] for o in ofs}
         h=get_hist(list(mp.keys()))
@@ -455,10 +463,51 @@ def recalcular_stats_batch(offer_ids: list[str]) -> None:
             continue
 
 
+# ── MERCADO LIVRE: Afiliados (games + acessórios) ────────────────────────────
+
+@st.cache_data(ttl=120)
+def get_ml_ofertas(categoria=None) -> list[dict]:
+    """Lista ofertas ML ativas (games e acessórios)."""
+    try:
+        q = DB.table("ml_afiliados").select("*").eq("ativo", True)
+        if categoria:
+            q = q.eq("categoria", categoria)
+        return q.order("comissao_pct", desc=True).execute().data
+    except Exception:
+        return []
+
+@st.cache_data(ttl=120)
+def get_ml_por_jogo(game_id: str) -> list[dict]:
+    """Ofertas ML vinculadas a um jogo específico do catálogo."""
+    try:
+        return (DB.table("ml_afiliados").select("*")
+                .eq("game_id", game_id).eq("ativo", True)
+                .order("comissao_pct", desc=True).execute().data)
+    except Exception:
+        return []
+
+def add_ml_oferta(dados: dict) -> bool:
+    try:
+        DB.table("ml_afiliados").insert(dados).execute()
+        st.cache_data.clear()
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar: {e}")
+        return False
+
+def del_ml_oferta(oferta_id: str) -> bool:
+    try:
+        DB.table("ml_afiliados").delete().eq("id", oferta_id).execute()
+        st.cache_data.clear()
+        return True
+    except Exception:
+        return False
+
+
 # ── SIDEBAR ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("<div style='font-size:1.1rem;font-weight:700;color:#fff;padding:8px 0 4px'>🎮 GamePrice Brasil</div>",unsafe_allow_html=True)
-    pag=st.radio("p",["🏠 Deals","🔍 Buscar","📚 Catálogo","❤️ Wishlist","🏆 Históricos","📊 Stats"],label_visibility="collapsed")
+    pag=st.radio("p",["🏠 Deals","🔍 Buscar","📚 Catálogo","🎮 Consoles","❤️ Wishlist","🏆 Históricos","📊 Stats","⚙️ Admin"],label_visibility="collapsed")
     st.markdown("---")
     st.markdown("<div style='font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px'>🏪 Shop</div>",unsafe_allow_html=True)
     dots="".join(["<div style='padding:3px 0;font-size:.82rem'><span style='display:inline-block;width:8px;height:8px;border-radius:50%;background:"+LOJA_DOTS.get(l,"#888")+";margin-right:7px;vertical-align:middle'></span>"+l+"</div>" for l in list(LOJA_DOTS.keys())])
@@ -640,6 +689,109 @@ elif pag=="🏆 Históricos":
                     if h.get("discount_max"):
                         st.caption("-"+str(h["discount_max"])+"%")
                 st.divider()
+
+elif pag=="🎮 Consoles":
+    _,C,_=st.columns(mg)
+    with C:
+        st.subheader("🎮 Games & Acessórios — Mercado Livre")
+        st.caption("Ofertas de jogos físicos de console e acessórios gamer")
+        ofertas_ml = get_ml_ofertas()
+        if not ofertas_ml:
+            st.info("Nenhuma oferta cadastrada ainda. Use a aba ⚙️ Admin para adicionar.")
+        else:
+            # Filtro por categoria
+            cat = st.radio("Categoria", ["Tudo","🎮 Games","🎧 Acessórios"],
+                           horizontal=True, label_visibility="collapsed")
+            filtrados = ofertas_ml
+            if cat == "🎮 Games":
+                filtrados = [o for o in ofertas_ml if o.get("categoria")=="game"]
+            elif cat == "🎧 Acessórios":
+                filtrados = [o for o in ofertas_ml if o.get("categoria")=="acessorio"]
+            st.caption(str(len(filtrados))+" ofertas")
+            for o in filtrados:
+                c1,c2,c3 = st.columns([1,3,1.2])
+                with c1:
+                    if o.get("imagem_url"):
+                        st.image(o["imagem_url"], use_container_width=True)
+                with c2:
+                    st.markdown("**"+o["titulo_ml"]+"**")
+                    meta = []
+                    if o.get("plataforma"): meta.append(o["plataforma"])
+                    if o.get("comissao_pct"): meta.append("💰 "+str(o["comissao_pct"])+"% comissão")
+                    st.caption(" · ".join(meta))
+                with c3:
+                    if o.get("preco"):
+                        st.markdown("**"+R(o["preco"])+"**")
+                    st.link_button("🛒 Comprar no ML", o["afiliado_url"],
+                                   use_container_width=True, type="primary")
+                st.divider()
+
+elif pag=="⚙️ Admin":
+    _,C,_=st.columns(mg)
+    with C:
+        st.subheader("⚙️ Admin — Ofertas Mercado Livre")
+        # Proteção por senha
+        senha = st.text_input("Senha de admin", type="password", key="admin_pw")
+        senha_correta = st.secrets.get("admin", {}).get("senha", "")
+        if not senha:
+            st.info("Digite a senha para acessar o painel de cadastro.")
+            st.stop()
+        if senha != senha_correta:
+            st.error("Senha incorreta.")
+            st.stop()
+        st.success("✓ Acesso liberado")
+
+        st.markdown("### ➕ Adicionar oferta ML")
+        st.caption("No app do ML: abra o produto → Compartilhar como afiliado → "
+                   "Copiar link (cola em URL) e Copiar ID (cola em ID).")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            titulo = st.text_input("Título do produto", key="ml_tit",
+                                   placeholder="ex.: Final Fantasy VII Rebirth PS5")
+            categoria = st.selectbox("Categoria", ["game","acessorio"], key="ml_cat")
+            plataforma = st.selectbox("Plataforma",
+                                      ["PS5","PS4","XBOX","SWITCH","PC","Multi","-"], key="ml_plat")
+        with col2:
+            preco = st.number_input("Preço (R$)", min_value=0.0, step=10.0, key="ml_preco")
+            comissao = st.number_input("Comissão (%)", min_value=0, max_value=30,
+                                       value=16, key="ml_com")
+        url = st.text_input("Link de afiliado (meli.la/...)", key="ml_url",
+                            placeholder="https://meli.la/xxxxx")
+        ml_id = st.text_input("ID do produto (MLB...)", key="ml_id_in",
+                             placeholder="MLB1234567 (opcional)")
+        imagem = st.text_input("URL da imagem (opcional)", key="ml_img")
+
+        if st.button("💾 Salvar oferta", type="primary"):
+            if not titulo or not url:
+                st.error("Título e link são obrigatórios.")
+            else:
+                dados = {
+                    "titulo_ml": titulo, "categoria": categoria,
+                    "plataforma": plataforma if plataforma!="-" else None,
+                    "preco": preco if preco>0 else None,
+                    "comissao_pct": comissao, "afiliado_url": url,
+                    "ml_id": ml_id or None, "imagem_url": imagem or None,
+                }
+                if add_ml_oferta(dados):
+                    st.success("Oferta salva! ✓")
+                    st.rerun()
+
+        st.divider()
+        st.markdown("### 📋 Ofertas cadastradas")
+        ofertas = get_ml_ofertas()
+        if not ofertas:
+            st.caption("Nenhuma oferta ainda.")
+        else:
+            for o in ofertas:
+                c1,c2 = st.columns([5,1])
+                with c1:
+                    st.markdown("**"+o["titulo_ml"]+"** — "+R(o.get("preco"))
+                               +" · "+str(o.get("comissao_pct",0))+"%")
+                    st.caption(o["afiliado_url"])
+                with c2:
+                    if st.button("🗑️", key="mldel_"+o["id"]):
+                        del_ml_oferta(o["id"]); st.rerun()
 
 else:
     _,C,_=st.columns(mg)

@@ -4,8 +4,24 @@ import streamlit as st
 from datetime import datetime
 from supabase import Client, create_client
 
-st.set_page_config(page_title="GamePrice Brasil", page_icon="🎮",
-                   layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(
+    page_title="GamePrice Brasil — Comparador de Preços de Jogos Steam, GOG, Epic",
+    page_icon="🎮",
+    layout="wide", initial_sidebar_state="expanded",
+    menu_items={
+        "About": "GamePrice Brasil — compare preços de jogos digitais e físicos. "
+                 "Steam, GOG, Humble, Epic e Mercado Livre num só lugar."
+    })
+
+# Meta tags para SEO e compartilhamento (Open Graph / Twitter Card)
+st.markdown("""
+<meta name="description" content="Compare preços de jogos no Brasil: Steam, GOG, Humble, Epic e Mercado Livre. Histórico de preços, mínimos históricos, jogos grátis da Epic e ofertas de games físicos de console.">
+<meta name="keywords" content="preço de jogos, comparador de preços games, steam barato, jogos em promoção, gog, humble, epic games grátis, mínimo histórico jogos, ofertas games brasil, jogos ps5 baratos">
+<meta property="og:title" content="GamePrice Brasil — Comparador de Preços de Jogos">
+<meta property="og:description" content="Encontre o menor preço de jogos digitais e físicos no Brasil. Steam, GOG, Epic, Mercado Livre.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+""", unsafe_allow_html=True)
 
 st.markdown("""<style>
 [data-testid="stSidebar"] { background:#1b2838 !important; }
@@ -543,6 +559,13 @@ mg=[0.5,7,0.5]
 if pag=="🏠 Deals":
     _,C,_=st.columns(mg)
     with C:
+        # Texto indexável pelo Google (descrição do serviço)
+        st.markdown(
+            "<p style='font-size:.8rem;color:#90a4b0;margin:0 0 8px'>"
+            "GamePrice Brasil — compare preços de jogos digitais e físicos no Brasil. "
+            "Steam, GOG, Humble Store, Epic Games e Mercado Livre num só lugar, "
+            "com histórico de preços e mínimos históricos.</p>",
+            unsafe_allow_html=True)
         ep=get_epic(); cf=ep.get("current",[]); nf=ep.get("next",[])
         if cf or nf:
             st.markdown('<div class="sh">🎁 Grátis na Epic esta semana</div>',unsafe_allow_html=True)

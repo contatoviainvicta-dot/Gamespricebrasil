@@ -66,7 +66,9 @@ def DT(iso):
     except: return iso[:10]
 
 @st.cache_data(ttl=300)
-def n_jogos(): return len(DB.table("games").select("id").execute().data)
+def n_jogos():
+    r = DB.table("games").select("id", count="exact").limit(1).execute()
+    return r.count or 0
 
 @st.cache_data(ttl=300)
 def get_deals(loja="Todas",plat="Todas",disc=0,lim=50):
@@ -109,13 +111,30 @@ def get_epic():
 
 @st.cache_data(ttl=600)
 def get_stats():
-    tp=len(DB.table("prices").select("id").execute().data)
+    tp = (DB.table("prices").select("id", count="exact").limit(1).execute().count) or 0
     ls=DB.table("stores").select("id,name").eq("active",True).execute().data
     cont=[]
     for l in ls:
-        c=len(DB.table("game_store_offers").select("id").eq("store_id",l["id"]).eq("active",True).execute().data)
+        c = (DB.table("game_store_offers").select("id", count="exact")
+             .eq("store_id",l["id"]).eq("active",True).limit(1).execute().count) or 0
         if c>0: cont.append({"loja":l["name"],"ofertas":c})
     return {"jogos":n_jogos(),"precos":tp,"lojas":sorted(cont,key=lambda x:x["ofertas"],reverse=True)}
+
+@st.cache_data(ttl=600)
+def get_home_stats():
+    """Números de destaque para a home."""
+    jogos = n_jogos()
+    try:
+        deals_hoje = (DB.table("v_game_offers").select("game_id", count="exact")
+                      .gt("discount_percent", 0).limit(1).execute().count) or 0
+    except Exception:
+        deals_hoje = 0
+    try:
+        min_hist = (DB.table("v_historicos_hoje").select("game_id", count="exact")
+                    .limit(1).execute().count) or 0
+    except Exception:
+        min_hist = 0
+    return {"jogos": jogos, "deals": deals_hoje, "min_hist": min_hist}
 
 @st.cache_data(ttl=600)
 def get_price_history(game_id):
@@ -566,6 +585,23 @@ if pag=="🏠 Deals":
             "Steam, GOG, Humble Store, Epic Games e Mercado Livre num só lugar, "
             "com histórico de preços e mínimos históricos.</p>",
             unsafe_allow_html=True)
+        # Barra de destaque com números
+        hs = get_home_stats()
+        st.markdown(
+            "<div style='display:flex;gap:10px;margin-bottom:14px'>"
+            "<div style='flex:1;background:linear-gradient(135deg,#1b2838,#2a475e);"
+            "border-radius:8px;padding:12px;text-align:center'>"
+            "<div style='font-size:1.4rem;font-weight:800;color:#66c0f4'>"+f"{hs['jogos']:,}".replace(",",".")+"</div>"
+            "<div style='font-size:.7rem;color:#c6d4df'>🎮 jogos monitorados</div></div>"
+            "<div style='flex:1;background:linear-gradient(135deg,#1b2838,#2a475e);"
+            "border-radius:8px;padding:12px;text-align:center'>"
+            "<div style='font-size:1.4rem;font-weight:800;color:#a4d007'>"+f"{hs['deals']:,}".replace(",",".")+"</div>"
+            "<div style='font-size:.7rem;color:#c6d4df'>🏷️ ofertas ativas</div></div>"
+            "<div style='flex:1;background:linear-gradient(135deg,#1b2838,#2a475e);"
+            "border-radius:8px;padding:12px;text-align:center'>"
+            "<div style='font-size:1.4rem;font-weight:800;color:#ef5350'>"+str(hs['min_hist'])+"</div>"
+            "<div style='font-size:.7rem;color:#c6d4df'>🏆 mínimos hoje</div></div>"
+            "</div>", unsafe_allow_html=True)
         ep=get_epic(); cf=ep.get("current",[]); nf=ep.get("next",[])
         if cf or nf:
             st.markdown('<div class="sh">🎁 Grátis na Epic esta semana</div>',unsafe_allow_html=True)

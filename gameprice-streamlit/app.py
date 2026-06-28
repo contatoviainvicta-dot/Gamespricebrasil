@@ -1004,8 +1004,9 @@ elif pag=="⚙️ Admin":
                                        value=16, key="ml_com")
         url = st.text_input("Link de afiliado (meli.la/...)", key="ml_url",
                             placeholder="https://meli.la/xxxxx")
-        ml_id = st.text_input("ID do produto (MLB...)", key="ml_id_in",
-                             placeholder="MLB1234567 (opcional)")
+        ml_url_preco = st.text_input("🔗 URL para preço (link normal do produto)", key="ml_url_preco",
+                            placeholder="https://www.mercadolivre.com.br/...MLB...")
+        st.caption("Cole a URL normal do produto (do navegador). É dela que o sistema lê o preço automaticamente.")
         imagem = st.text_input("URL da imagem (opcional)", key="ml_img")
 
         # Vínculo opcional a um jogo do catálogo
@@ -1038,7 +1039,7 @@ elif pag=="⚙️ Admin":
                     "plataforma": plataforma if plataforma!="-" else None,
                     "preco": preco if preco>0 else None,
                     "comissao_pct": comissao, "afiliado_url": url,
-                    "ml_id": ml_id or None, "imagem_url": imagem or None,
+                    "ml_url": ml_url_preco or None, "imagem_url": imagem or None,
                     "game_id": game_id_vinculo,
                 }
                 if add_ml_oferta(dados):

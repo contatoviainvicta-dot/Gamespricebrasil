@@ -76,10 +76,15 @@ def n_jogos():
 def get_deals(loja="Todas",plat="Todas",disc=0,lim=50):
     q = (DB.table("v_game_offers")
          .select("game_id,title,platform,cover_url,store,price,old_price,discount_percent")
-         .gt("discount_percent",disc).order("discount_percent",desc=True).limit(lim))
+         .order("discount_percent",desc=True).limit(500))
+    if disc>0: q=q.gte("discount_percent",disc)
     if plat!="Todas": q=q.eq("platform",plat)
-    if loja!="Todas": q=q.eq("store",loja)
-    return q.execute().data
+    rows=q.execute().data
+    # Filtro de loja tolerante (compara ignorando caixa e espaços)
+    if loja!="Todas":
+        lk=loja.lower().replace(" ","")
+        rows=[r for r in rows if (r.get("store") or "").lower().replace(" ","")==lk]
+    return rows[:lim]
 
 @st.cache_data(ttl=300)
 def buscar(t,p="Todas"):
@@ -433,9 +438,9 @@ def detalhe(jg):
         # Ofertas Mercado Livre vinculadas (console/físico)
         ml_jogo = get_ml_por_jogo(jg["id"])
         if ml_jogo:
-            st.markdown("**🎮 Também no Mercado Livre (físico):**")
+            st.markdown("**🎮 Também em versão física no Mercado Livre:**")
             for m in ml_jogo:
-                lbl = "🛒 "+m["titulo_ml"]
+                lbl = "👀 "+m["titulo_ml"]
                 if m.get("preco"): lbl += " — "+R(m["preco"])
                 st.link_button(lbl, m["afiliado_url"], use_container_width=True)
         st.markdown("#### 📈 Histórico")
@@ -754,7 +759,7 @@ elif pag=="🔍 Buscar":
                     st.caption(meta)
                 with mc3:
                     if m.get("preco"): st.markdown("**"+R(m["preco"])+"**")
-                    st.link_button("🛒 Comprar",m["afiliado_url"],use_container_width=True,type="primary")
+                    st.link_button("👀 Ver no Mercado Livre",m["afiliado_url"],use_container_width=True,type="primary")
                 st.divider()
 
         if resultados:
@@ -930,7 +935,7 @@ elif pag=="🎮 Mercado Livre":
                 with c3:
                     if o.get("preco"):
                         st.markdown("**"+R(o["preco"])+"**")
-                    st.link_button("🛒 Comprar no ML", o["afiliado_url"],
+                    st.link_button("👀 Ver no Mercado Livre", o["afiliado_url"],
                                    use_container_width=True, type="primary")
                 st.divider()
 

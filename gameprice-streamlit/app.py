@@ -45,7 +45,7 @@ st.markdown("""<style>
 
 APP_URL = "https://azaxme2muk9qxnbsapmzag.streamlit.app"
 
-PLAT  = ["Todas","PC","PS4","PS5","XBOX","SWITCH"]
+PLAT  = ["Todas","PC","PS5","PS4","XBOX","SWITCH","SNES","MEGA DRIVE"]
 LOJAS = ["Todas","Steam","GOG","Humble Store","Epic Games","Nuuvem","Fanatical"]
 MED   = {0:"🥇",1:"🥈",2:"🥉"}
 CORES = {"Steam":"#1b2838","GOG":"#8a2be2","Humble Store":"#c62828",
@@ -61,6 +61,33 @@ DB = SB()
 def R(v):
     if v is None: return "—"
     return "Gratuito" if float(v)==0 else f"R$ {float(v):.2f}"
+
+def render_ml_card(o):
+    """Renderiza um card de produto ML (reutilizável em várias telas)."""
+    import streamlit as _st
+    c1,c2,c3=_st.columns([1,3,1.2])
+    with c1:
+        if o.get("imagem_url"):
+            _st.image(o["imagem_url"],use_container_width=True)
+        else:
+            ic={"game":"🎮","retro":"👾","console":"🕹️"}.get(o.get("categoria"),"🎧")
+            _st.markdown("<div style='aspect-ratio:1;background:linear-gradient(135deg,#fff159,#ffe600);"
+                         "border-radius:8px;display:flex;align-items:center;justify-content:center;"
+                         "font-size:2rem'>"+ic+"</div>",unsafe_allow_html=True)
+    with c2:
+        _st.markdown("**"+o["titulo_ml"]+"**")
+        meta=[]
+        if o.get("plataforma"): meta.append(o["plataforma"])
+        cl={"retro":"👾 Retrô","console":"🕹️ Console","acessorio":"🎧 Acessório"}.get(o.get("categoria"))
+        if cl: meta.append(cl)
+        _st.caption(" · ".join(meta))
+    with c3:
+        if o.get("preco"):
+            _st.markdown("<div style='font-size:1.3rem;font-weight:800;color:#2a9d3a'>"+R(o["preco"])+"</div>"
+                         "<div style='font-size:.66rem;color:#e8a33d;font-weight:600'>⚠️ confira no ML</div>",
+                         unsafe_allow_html=True)
+        _st.link_button("👀 Ver no Mercado Livre",o["afiliado_url"],use_container_width=True,type="primary")
+    _st.divider()
 
 def DT(iso):
     try: return datetime.fromisoformat(iso.replace("Z","+00:00")).strftime("%d/%m %H:%Mh")
@@ -727,13 +754,27 @@ if pag=="🏠 Deals":
                         st.link_button("👀 Ver no Mercado Livre",o["afiliado_url"],use_container_width=True,type="primary")
                     st.divider()
         else:
-            st.markdown('<div class="sh">🔥 Melhores deals agora</div>',unsafe_allow_html=True)
-            ds=get_deals(fl,fp,disc_min,60)
-            if pm: ds=[d for d in ds if float(d.get("price") or 0)<=pm]
-            if not ds: st.info("Nenhum deal com esses filtros.")
+            # Se filtrou um console (PS5/PS4/XBOX/SWITCH), o catálogo digital é só PC,
+            # então mostramos os produtos ML daquela plataforma
+            consoles = ["PS5","PS4","PS3","PS2","PS1","XBOX","XBOX 360","SWITCH",
+                        "SNES","NES","MEGA DRIVE","NINTENDO 64","GAMECUBE","GAME BOY"]
+            if fp in consoles:
+                st.markdown('<div class="sh">🎮 '+fp+' no Mercado Livre</div>',unsafe_allow_html=True)
+                ml=[m for m in get_ml_ofertas() if (m.get("plataforma") or "").upper()==fp]
+                if pm: ml=[m for m in ml if float(m.get("preco") or 0)<=pm and float(m.get("preco") or 0)>0]
+                if not ml:
+                    st.info("Ainda não há produtos de "+fp+" cadastrados. Em breve!")
+                else:
+                    st.caption(str(len(ml))+" produtos")
+                    for o in ml: render_ml_card(o)
             else:
-                st.caption(str(len(ds))+" deals")
-                for i,j in enumerate(ds): deal_card(j,i)
+                st.markdown('<div class="sh">🔥 Melhores deals agora</div>',unsafe_allow_html=True)
+                ds=get_deals(fl,fp,disc_min,60)
+                if pm: ds=[d for d in ds if float(d.get("price") or 0)<=pm]
+                if not ds: st.info("Nenhum deal com esses filtros.")
+                else:
+                    st.caption(str(len(ds))+" deals")
+                    for i,j in enumerate(ds): deal_card(j,i)
 
 elif pag=="🔍 Buscar":
     _,C,_=st.columns(mg)

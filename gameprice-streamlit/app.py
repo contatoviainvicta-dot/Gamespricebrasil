@@ -789,7 +789,9 @@ elif pag=="🔍 Buscar":
                     meta=m.get("plataforma","") or ""
                     st.caption(meta)
                 with mc3:
-                    if m.get("preco"): st.markdown("**"+R(m["preco"])+"**")
+                    if m.get("preco"):
+                        st.markdown("**"+R(m["preco"])+"**")
+                        st.markdown("<span style='font-size:.62rem;color:#90a4b0'>valor de referência</span>",unsafe_allow_html=True)
                     st.link_button("👀 Ver no Mercado Livre",m["afiliado_url"],use_container_width=True,type="primary")
                 st.divider()
 
@@ -966,6 +968,7 @@ elif pag=="🎮 Mercado Livre":
                 with c3:
                     if o.get("preco"):
                         st.markdown("**"+R(o["preco"])+"**")
+                        st.markdown("<span style='font-size:.62rem;color:#90a4b0'>valor de referência</span>",unsafe_allow_html=True)
                     st.link_button("👀 Ver no Mercado Livre", o["afiliado_url"],
                                    use_container_width=True, type="primary")
                 st.divider()
@@ -999,7 +1002,8 @@ elif pag=="⚙️ Admin":
                                        "SWITCH","SNES","NES","MEGA DRIVE","NINTENDO 64",
                                        "GAMECUBE","GAME BOY","PC","Multi","-"], key="ml_plat")
         with col2:
-            preco = st.number_input("Preço (R$)", min_value=0.0, step=10.0, key="ml_preco")
+            preco = st.number_input("Preço de referência (R$)", min_value=0.0, step=10.0, key="ml_preco",
+                                    help="Valor aproximado do produto no ML. Atualize de vez em quando, pois o ML muda os preços.")
             comissao = st.number_input("Comissão (%)", min_value=0, max_value=30,
                                        value=16, key="ml_com")
         url = st.text_input("Link de afiliado (meli.la/...)", key="ml_url",

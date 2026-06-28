@@ -799,12 +799,28 @@ elif pag=="🔍 Buscar":
         ord_busca=f2.selectbox("Ordenar",["Relevância","Menor preço","Maior desconto","A-Z"],key="ord_b")
         faixa=f3.selectbox("Preço",["Qualquer","Até R$ 10","Até R$ 25","Até R$ 50","Até R$ 100"],key="faixa_b")
 
-        if not t:
-            st.info("Digite o nome de um jogo para começar.")
-            st.stop()
-
         pmax=None
         if faixa!="Qualquer": pmax=float(faixa.replace("Até R$ ",""))
+
+        # Produtos ML sempre filtram por plataforma (mesmo sem texto digitado)
+        consoles=["PS5","PS4","PS3","PS2","PS1","XBOX","XBOX 360","SWITCH",
+                  "SNES","NES","MEGA DRIVE","NINTENDO 64","GAMECUBE","GAME BOY"]
+        ml_plat=[]
+        if pb in consoles:
+            ml_plat=[m for m in get_ml_ofertas() if (m.get("plataforma") or "").upper()==pb]
+            if pmax: ml_plat=[m for m in ml_plat if 0<float(m.get("preco") or 0)<=pmax]
+
+        # Se não digitou nada: mostra produtos ML da plataforma (se console) ou orienta
+        if not t:
+            if ml_plat:
+                st.markdown("**🎮 "+pb+" no Mercado Livre**")
+                for o in ml_plat: render_ml_card(o)
+            elif pb in consoles:
+                st.info("Ainda não há produtos de "+pb+" cadastrados. Em breve!")
+            else:
+                st.info("Digite o nome de um jogo para buscar, ou escolha uma plataforma de console para ver produtos físicos.")
+            st.stop()
+
         resultados=buscar_rico(t,pb,pmax,0,ord_busca)
         resultados_ml=buscar_ml(t)
 
@@ -870,6 +886,21 @@ elif pag=="📚 Catálogo":
         nm=c1.text_input("🔍 Nome",key="cn",placeholder="ex.: Hades, Elden...")
         pt=c2.selectbox("Plataforma",PLAT,key="cp")
         od=c3.selectbox("Ordenar",["A-Z","Menor preço","Maior desconto"],key="co")
+
+        # Console → catálogo digital é só PC, então mostra produtos ML da plataforma
+        consoles_cat=["PS5","PS4","PS3","PS2","PS1","XBOX","XBOX 360","SWITCH",
+                      "SNES","NES","MEGA DRIVE","NINTENDO 64","GAMECUBE","GAME BOY"]
+        if pt in consoles_cat:
+            ml=[m for m in get_ml_ofertas() if (m.get("plataforma") or "").upper()==pt]
+            if nm: ml=[m for m in ml if nm.lower() in (m.get("titulo_ml") or "").lower()]
+            st.markdown("**🎮 "+pt+" no Mercado Livre**")
+            if not ml:
+                st.info("Ainda não há produtos de "+pt+" cadastrados. Em breve!")
+            else:
+                st.caption(str(len(ml))+" produtos")
+                for o in ml: render_ml_card(o)
+            st.stop()
+
         q=DB.table("v_game_offers").select("game_id,title,platform,cover_url,price,discount_percent")
         # Filtrar no banco (antes do limite) para a busca funcionar em todo o catálogo
         if nm: q=q.ilike("title",f"%{nm}%")

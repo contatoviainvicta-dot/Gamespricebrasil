@@ -790,8 +790,9 @@ elif pag=="🔍 Buscar":
                     st.caption(meta)
                 with mc3:
                     if m.get("preco"):
-                        st.markdown("**"+R(m["preco"])+"**")
-                        st.markdown("<span style='font-size:.62rem;color:#90a4b0'>valor de referência</span>",unsafe_allow_html=True)
+                        st.markdown("<div style='font-size:1.3rem;font-weight:800;color:#2a9d3a'>"+R(m["preco"])+"</div>"
+                                    "<div style='font-size:.66rem;color:#e8a33d;font-weight:600'>⚠️ confira no ML</div>",
+                                    unsafe_allow_html=True)
                     st.link_button("👀 Ver no Mercado Livre",m["afiliado_url"],use_container_width=True,type="primary")
                 st.divider()
 
@@ -925,6 +926,7 @@ elif pag=="🎮 Mercado Livre":
     with C:
         st.subheader("🎮 Mercado Livre — Físico")
         st.caption("Jogos, consoles, acessórios e clássicos retrô")
+        st.info("💡 Os preços são valores de referência. Confirme sempre o preço atual no Mercado Livre antes de comprar.")
         ofertas_ml = get_ml_ofertas()
         if not ofertas_ml:
             st.info("Nenhuma oferta cadastrada ainda. Use a aba ⚙️ Admin para adicionar.")
@@ -967,8 +969,9 @@ elif pag=="🎮 Mercado Livre":
                     st.caption(" · ".join(meta))
                 with c3:
                     if o.get("preco"):
-                        st.markdown("**"+R(o["preco"])+"**")
-                        st.markdown("<span style='font-size:.62rem;color:#90a4b0'>valor de referência</span>",unsafe_allow_html=True)
+                        st.markdown("<div style='font-size:1.3rem;font-weight:800;color:#2a9d3a'>"+R(o["preco"])+"</div>"
+                                    "<div style='font-size:.66rem;color:#e8a33d;font-weight:600'>⚠️ confira no ML</div>",
+                                    unsafe_allow_html=True)
                     st.link_button("👀 Ver no Mercado Livre", o["afiliado_url"],
                                    use_container_width=True, type="primary")
                 st.divider()

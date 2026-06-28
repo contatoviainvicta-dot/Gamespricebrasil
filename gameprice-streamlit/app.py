@@ -618,8 +618,9 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("<div style='font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px'>🏪 Shop</div>",unsafe_allow_html=True)
     dots="".join(["<div style='padding:3px 0;font-size:.82rem'><span style='display:inline-block;width:8px;height:8px;border-radius:50%;background:"+LOJA_DOTS.get(l,"#888")+";margin-right:7px;vertical-align:middle'></span>"+l+"</div>" for l in list(LOJA_DOTS.keys())])
+    dots+="<div style='padding:3px 0;font-size:.82rem'><span style='display:inline-block;width:8px;height:8px;border-radius:50%;background:#ffe600;margin-right:7px;vertical-align:middle'></span>Mercado Livre</div>"
     st.markdown(dots,unsafe_allow_html=True)
-    fl=st.selectbox("",["Todas"]+list(LOJA_DOTS.keys()),key="fl",label_visibility="collapsed")
+    fl=st.selectbox("",["Todas"]+list(LOJA_DOTS.keys())+["Mercado Livre"],key="fl",label_visibility="collapsed")
     st.markdown("---")
     st.markdown("<div style='font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px'>💰 Price</div>",unsafe_allow_html=True)
     fm=st.radio("pm",["Qualquer","Até R$ 5","Até R$ 25","Até R$ 50","Até R$ 100","Até R$ 150"],key="fm",label_visibility="collapsed")
@@ -695,13 +696,44 @@ if pag=="🏠 Deals":
         if fm!="Qualquer": pm=float(fm.replace("Até R$ ",""))
         disc_min=0
         if fd!="Qualquer": disc_min=int(fd.split("%")[0])
-        st.markdown('<div class="sh">🔥 Melhores deals agora</div>',unsafe_allow_html=True)
-        ds=get_deals(fl,fp,disc_min,60)
-        if pm: ds=[d for d in ds if float(d.get("price") or 0)<=pm]
-        if not ds: st.info("Nenhum deal com esses filtros.")
+        if fl=="Mercado Livre":
+            # Filtro Shop = Mercado Livre → mostra produtos físicos ML
+            st.markdown('<div class="sh">🎮 Mercado Livre — produtos físicos</div>',unsafe_allow_html=True)
+            ml=get_ml_ofertas()
+            if pm: ml=[m for m in ml if float(m.get("preco") or 0)<=pm and float(m.get("preco") or 0)>0]
+            if not ml:
+                st.info("Nenhum produto do Mercado Livre com esse filtro.")
+            else:
+                st.caption(str(len(ml))+" produtos")
+                for o in ml:
+                    c1,c2,c3=st.columns([1,3,1.2])
+                    with c1:
+                        if o.get("imagem_url"):
+                            st.image(o["imagem_url"],use_container_width=True)
+                        else:
+                            ic={"game":"🎮","retro":"👾","console":"🕹️"}.get(o.get("categoria"),"🎧")
+                            st.markdown("<div style='aspect-ratio:1;background:linear-gradient(135deg,#fff159,#ffe600);"
+                                        "border-radius:8px;display:flex;align-items:center;justify-content:center;"
+                                        "font-size:2rem'>"+ic+"</div>",unsafe_allow_html=True)
+                    with c2:
+                        st.markdown("**"+o["titulo_ml"]+"**")
+                        meta=[]
+                        if o.get("plataforma"): meta.append(o["plataforma"])
+                        cl={"retro":"👾 Retrô","console":"🕹️ Console","acessorio":"🎧 Acessório"}.get(o.get("categoria"))
+                        if cl: meta.append(cl)
+                        st.caption(" · ".join(meta))
+                    with c3:
+                        if o.get("preco"): st.markdown("**"+R(o["preco"])+"**")
+                        st.link_button("👀 Ver no Mercado Livre",o["afiliado_url"],use_container_width=True,type="primary")
+                    st.divider()
         else:
-            st.caption(str(len(ds))+" deals")
-            for i,j in enumerate(ds): deal_card(j,i)
+            st.markdown('<div class="sh">🔥 Melhores deals agora</div>',unsafe_allow_html=True)
+            ds=get_deals(fl,fp,disc_min,60)
+            if pm: ds=[d for d in ds if float(d.get("price") or 0)<=pm]
+            if not ds: st.info("Nenhum deal com esses filtros.")
+            else:
+                st.caption(str(len(ds))+" deals")
+                for i,j in enumerate(ds): deal_card(j,i)
 
 elif pag=="🔍 Buscar":
     _,C,_=st.columns(mg)

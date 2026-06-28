@@ -50,8 +50,7 @@ LOJAS = ["Todas","Steam","GOG","Humble Store","Epic Games","Nuuvem","Fanatical"]
 MED   = {0:"🥇",1:"🥈",2:"🥉"}
 CORES = {"Steam":"#1b2838","GOG":"#8a2be2","Humble Store":"#c62828",
          "Epic Games":"#37474f","Nuuvem":"#1565c0","Fanatical":"#bf360c"}
-LOJA_DOTS = {"Steam":"#4caf50","GOG":"#ff9800","Humble Store":"#f44336",
-             "Epic Games":"#9c27b0","Nuuvem":"#2196f3","Fanatical":"#ff5722"}
+LOJA_DOTS = {"Steam":"#4caf50","GOG":"#ff9800","Humble Store":"#f44336"}
 
 @st.cache_resource
 def SB():

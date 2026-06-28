@@ -655,9 +655,7 @@ with st.sidebar:
     st.markdown("<div style='font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px'>🏷️ Price Cut</div>",unsafe_allow_html=True)
     fd=st.radio("pc",["Qualquer","25% ou mais","50% ou mais","75% ou mais","90% ou mais"],key="fd",label_visibility="collapsed")
     st.markdown("---")
-    st.markdown("<div style='font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px'>🎮 Plataforma</div>",unsafe_allow_html=True)
-    fp=st.radio("pp",PLAT,key="fp",label_visibility="collapsed")
-    st.markdown("---")
+    fp="Todas"  # filtro de plataforma agora fica nas abas Buscar/Catálogo
     ep=get_epic(); cf=ep.get("current",[])
     if cf:
         st.markdown("<div style='font-size:.8rem;font-weight:700;color:#8fa3b1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px'>🎁 Grátis na Epic</div>",unsafe_allow_html=True)

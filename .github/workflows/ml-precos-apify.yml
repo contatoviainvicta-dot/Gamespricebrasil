@@ -1,0 +1,27 @@
+name: ml-precos-apify
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 8 * * *"   # 5h Brasília, 1x por dia
+
+jobs:
+  precos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: gameprice-streamlit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+      - name: Coletar preços ML
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+        run: python worker/ml_precos_apify.py
